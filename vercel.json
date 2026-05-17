@@ -3,7 +3,8 @@
   "outputDirectory": "frontend/build",
   "functions": {
     "api/index.py": {
-      "runtime": "python3.11"
+      "runtime": "python3.11",
+      "includeFiles": "backend/**"
     }
   },
   "routes": [
@@ -12,8 +13,12 @@
       "dest": "/api/index.py"
     },
     {
+      "src": "/static/(.*)",
+      "dest": "/static/$1"
+    },
+    {
       "src": "/(.*)",
-      "dest": "/frontend/src/index.html"
+      "dest": "/index.html"
     }
   ]
 }

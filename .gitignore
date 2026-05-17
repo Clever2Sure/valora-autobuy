@@ -80,6 +80,10 @@ pending_purchase_links.json
 *.pem
 *.key
 secrets/
+.kite-passport/
+kpass
+*.key
+secrets/
 
 # API test files (optional - keep if needed for dev)
 # test_*.py

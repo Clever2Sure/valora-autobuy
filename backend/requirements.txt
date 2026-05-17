@@ -5,3 +5,5 @@ requests==2.31.0
 python-dotenv==1.0.0
 beautifulsoup4==4.12.2
 py-solc-x==1.1.1
+mangum==0.17.0
+eth-account==0.10.0
