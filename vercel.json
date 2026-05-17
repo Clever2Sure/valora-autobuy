@@ -1,9 +1,9 @@
 {
-  "buildCommand": "pip install -r requirements.txt",
-  "outputDirectory": ".",
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/build",
   "functions": {
     "api/index.py": {
-      "runtime": "python@3.11"
+      "runtime": "python3.11"
     }
   },
   "routes": [
