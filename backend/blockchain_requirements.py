@@ -7,17 +7,25 @@ import os
 from web3 import Web3
 from dotenv import load_dotenv
 
-load_dotenv()
+backend_dir = os.path.dirname(__file__)
+root_env = os.path.join(backend_dir, os.pardir, ".env")
+backend_env = os.path.join(backend_dir, ".env")
+load_dotenv(root_env)
+load_dotenv(backend_env, override=True)
 
-# KITE AI Testnet Configuration
-KITE_RPC = os.getenv("KITE_RPC_URL", "https://rpc-testnet.gokite.ai/")
-KITE_CHAIN_ID = 2368
-USDT_ADDRESS = os.getenv("USDT_ADDRESS", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
+# KITE AI Mainnet Configuration
+KITE_RPC = os.getenv("KITE_RPC_URL", "https://rpc.gokite.ai/")
+KITE_CHAIN_ID = 2366
+STABLECOIN_ADDRESS = os.getenv(
+    "STABLECOIN_ADDRESS",
+    os.getenv("USDC_ADDRESS", "0x7aB6f3ed87C42eF0aDb67Ed95090f8bF5240149e")  # USDC.e on KITE AI Mainnet
+)
+PAYMENT_TOKEN_SYMBOL = os.getenv("STABLECOIN_SYMBOL", "USDC")
 MIN_KITE_FOR_GAS = 0.1  # Minimum KITE for gas fees
-MIN_USDT_FOR_PURCHASE = 1.0  # Minimum USDT to make a purchase
+MIN_STABLECOIN_FOR_PURCHASE = 1.0  # Minimum stablecoin to make a purchase
 
-# USDT Contract ABI (ERC20)
-USDT_ABI = [
+# Stablecoin ERC20 ABI (compatible with USDC/USDT/PYUSD)
+ERC20_ABI = [
     {
         "inputs": [{"name": "_owner", "type": "address"}],
         "name": "balanceOf",
@@ -55,23 +63,23 @@ USDT_ABI = [
 
 # KITE AI Network Configuration for frontend
 KITE_NETWORK_CONFIG = {
-    "chainId": "0x940",  # 2368 in hex
-    "chainName": "KITE AI Testnet",
+    "chainId": "0x94e",  # 2366 in hex
+    "chainName": "KITE AI Mainnet",
     "nativeCurrency": {
         "name": "KITE",
         "symbol": "KITE",
         "decimals": 18,
     },
     "rpcUrls": [KITE_RPC],
-    "blockExplorerUrls": ["https://testnet.kitescan.ai/"],
+    "blockExplorerUrls": ["https://kitescan.ai/"],
 }
 
-# USDT Token Configuration for frontend
-USDT_TOKEN_CONFIG = {
-    "address": USDT_ADDRESS,
-    "symbol": "USDT",
+# Stablecoin Token Configuration for frontend
+STABLECOIN_TOKEN_CONFIG = {
+    "address": STABLECOIN_ADDRESS,
+    "symbol": PAYMENT_TOKEN_SYMBOL,
     "decimals": 6,
-    "image": "https://assets.coingecko.com/coins/images/325/large/Tether.png",
+    "image": "https://assets.coingecko.com/coins/images/13196/large/USD_Coin_icon.png",
 }
 
 
@@ -80,9 +88,9 @@ class WalletRequirements:
 
     def __init__(self):
         self.w3 = Web3(Web3.HTTPProvider(KITE_RPC))
-        self.usdt_contract = self.w3.eth.contract(
-            address=Web3.to_checksum_address(USDT_ADDRESS),
-            abi=USDT_ABI
+        self.stablecoin_contract = self.w3.eth.contract(
+            address=Web3.to_checksum_address(STABLECOIN_ADDRESS),
+            abi=ERC20_ABI
         )
 
     def is_connected(self) -> bool:
@@ -120,24 +128,24 @@ class WalletRequirements:
         except Exception as e:
             return {"error": str(e), "balance": 0, "sufficient": False}
 
-    def get_usdt_balance(self, address: str) -> dict:
-        """Get USDT balance for an address"""
+    def get_stablecoin_balance(self, address: str) -> dict:
+        """Get stablecoin balance for an address"""
         try:
             if not self.validate_address(address):
                 return {"error": "Invalid address format", "balance": 0}
 
             address = Web3.to_checksum_address(address)
-            balance_raw = self.usdt_contract.functions.balanceOf(address).call()
-            decimals = self.usdt_contract.functions.decimals().call()
-            balance_usdt = balance_raw / (10 ** decimals)
+            balance_raw = self.stablecoin_contract.functions.balanceOf(address).call()
+            decimals = self.stablecoin_contract.functions.decimals().call()
+            balance_token = balance_raw / (10 ** decimals)
 
             return {
-                "balance": float(balance_usdt),
+                "balance": float(balance_token),
                 "balance_raw": str(balance_raw),
                 "decimals": decimals,
-                "sufficient": float(balance_usdt) >= MIN_USDT_FOR_PURCHASE,
-                "minimum_required": MIN_USDT_FOR_PURCHASE,
-                "needs": max(0, MIN_USDT_FOR_PURCHASE - float(balance_usdt)),
+                "sufficient": float(balance_token) >= MIN_STABLECOIN_FOR_PURCHASE,
+                "minimum_required": MIN_STABLECOIN_FOR_PURCHASE,
+                "needs": max(0, MIN_STABLECOIN_FOR_PURCHASE - float(balance_token)),
             }
         except Exception as e:
             return {"error": str(e), "balance": 0, "sufficient": False}
@@ -145,15 +153,15 @@ class WalletRequirements:
     def check_wallet_requirements(self, address: str) -> dict:
         """
         Comprehensive wallet requirements check
-        Returns status of network, KITE (gas), and USDT (payment)
+        Returns status of network, KITE (gas), and stablecoin payment
         """
         kite_balance = self.get_kite_balance(address)
-        usdt_balance = self.get_usdt_balance(address)
+        stablecoin_balance = self.get_stablecoin_balance(address)
 
         return {
             "address": address,
             "network": {
-                "name": "KITE AI Testnet",
+                "name": "KITE AI Mainnet",
                 "chainId": KITE_CHAIN_ID,
                 "config": KITE_NETWORK_CONFIG,
             },
@@ -163,22 +171,22 @@ class WalletRequirements:
                 "needs": kite_balance.get("needs", 0),
                 "minimum": MIN_KITE_FOR_GAS,
             },
-            "usdt": {
-                "balance": usdt_balance.get("balance", 0),
-                "sufficient": usdt_balance.get("sufficient", False),
-                "needs": usdt_balance.get("needs", 0),
-                "minimum": MIN_USDT_FOR_PURCHASE,
-                "config": USDT_TOKEN_CONFIG,
+            "stablecoin": {
+                "balance": stablecoin_balance.get("balance", 0),
+                "sufficient": stablecoin_balance.get("sufficient", False),
+                "needs": stablecoin_balance.get("needs", 0),
+                "minimum": MIN_STABLECOIN_FOR_PURCHASE,
+                "config": STABLECOIN_TOKEN_CONFIG,
             },
             "ready_to_purchase": (
                 kite_balance.get("sufficient", False) and
-                usdt_balance.get("sufficient", False)
+                stablecoin_balance.get("sufficient", False)
             ),
-            "issues": self._get_issues(kite_balance, usdt_balance),
+            "issues": self._get_issues(kite_balance, stablecoin_balance),
         }
 
     @staticmethod
-    def _get_issues(kite_data: dict, usdt_data: dict) -> list:
+    def _get_issues(kite_data: dict, stablecoin_data: dict) -> list:
         """Identify wallet issues"""
         issues = []
 
@@ -188,30 +196,26 @@ class WalletRequirements:
                 "severity": "critical",
                 "message": f"❌ Insufficient KITE for gas fees. You have {kite_data.get('balance', 0):.8f} KITE, need minimum 0.001 KITE",
                 "needs": kite_data.get("needs", 0),
-                "faucet": "https://faucet.gokite.ai",
-                "faucet_name": "KITE AI Faucet",
-                "action": "Get KITE tokens from faucet for gas fees",
+                "action": "Fund your wallet on KiteAI Mainnet (exchange, bridge, or transfer)",
             })
 
-        if not usdt_data.get("sufficient", False):
+        if not stablecoin_data.get("sufficient", False):
             issues.append({
-                "type": "insufficient_usdt",
+                "type": "insufficient_stablecoin",
                 "severity": "critical",
-                "message": f"❌ Insufficient USDT for payment. You have {usdt_data.get('balance', 0):.6f} USDT, need minimum 0.01 USDT",
-                "needs": usdt_data.get("needs", 0),
-                "faucet": "https://faucet.gokite.ai",
-                "faucet_name": "KITE AI Faucet",
-                "action": "Get USDT tokens from faucet for service charges",
+                "message": f"❌ Insufficient {PAYMENT_TOKEN_SYMBOL} for payment. You have {stablecoin_data.get('balance', 0):.6f} {PAYMENT_TOKEN_SYMBOL}, need minimum {MIN_STABLECOIN_FOR_PURCHASE:.2f} {PAYMENT_TOKEN_SYMBOL}",
+                "needs": stablecoin_data.get("needs", 0),
+                "action": f"Fund your wallet with {PAYMENT_TOKEN_SYMBOL} on KiteAI Mainnet (exchange, bridge, or transfer)",
             })
 
         return issues
 
     def estimate_transaction_cost(self) -> dict:
-        """Estimate gas costs for a typical USDT transfer"""
+        """Estimate gas costs for a typical stablecoin transfer"""
         try:
-            # Estimate gas for USDT transfer
+            # Estimate gas for stablecoin transfer
             gas_price = self.w3.eth.gas_price
-            estimated_gas = 100000  # Standard estimate for USDT transfer
+            estimated_gas = 100000  # Standard estimate for stablecoin transfer
 
             total_wei = gas_price * estimated_gas
             total_kite = self.w3.from_wei(total_wei, "ether")
@@ -226,25 +230,15 @@ class WalletRequirements:
             return {"error": str(e)}
 
     def get_faucet_info(self) -> dict:
-        """Provide faucet information for getting test tokens"""
+        """Mainnet: no public faucet available. Provide funding guidance and explorer."""
         return {
-            "kite_faucet": {
-                "name": "KITE AI Official Faucet",
-                "url": "https://faucet.gokite.ai",
-                "description": "Get test KITE for gas fees and USDT for payments",
-                "amount": "KITE + USDT",
-                "time_between_requests": "24 hours",
-            },
-            "usdt_faucet": {
-                "name": "KITE AI Faucet (USDT via same faucet)",
-                "url": "https://faucet.gokite.ai",
-                "description": "Request both KITE (gas) and USDT (payment) tokens",
-                "amount": "Configured amount",
-            },
+            "kite_faucet": None,
+            "stablecoin_faucet": None,
+            "funding_guidance": "No public faucet on KiteAI Mainnet. Fund wallets via exchange, bridge, or direct transfer.",
             "block_explorer": {
                 "name": "Kitescan",
-                "url": "https://testnet.kitescan.ai/",
-                "description": "View transactions and verify settlements",
+                "url": "https://kitescan.ai/",
+                "description": "View transactions and verify settlements on KiteAI Mainnet",
             },
         }
 

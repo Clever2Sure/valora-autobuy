@@ -258,7 +258,123 @@ body {
 }
 
 .attestation-item {
-  background: #f0fdf4;
+  background: #f8f9fa;
+  padding: 12px;
+  border-radius: 6px;
+  border-left: 3px solid #667eea;
+}
+
+.hero-subtitle {
+  margin-top: 12px;
+  color: #555;
+  max-width: 720px;
+  line-height: 1.6;
+}
+
+.auth-copy {
+  margin-bottom: 20px;
+  color: #555;
+  line-height: 1.6;
+}
+
+.passport-setup-box {
+  background: white;
+  padding: 32px;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  margin-bottom: 30px;
+}
+
+.passport-setup-box h2 {
+  margin-bottom: 16px;
+  color: #333;
+}
+
+.passport-setup-box p {
+  margin-bottom: 18px;
+  color: #555;
+  line-height: 1.7;
+}
+
+.passport-steps {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.passport-step {
+  padding: 18px;
+  border-radius: 12px;
+  border: 1px solid #e8ecff;
+  background: #fbfcff;
+}
+
+.passport-step strong {
+  display: block;
+  margin-bottom: 8px;
+  color: #222;
+}
+
+.passport-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.passport-actions .primary,
+.passport-actions .secondary {
+  flex: 1;
+}
+
+.passport-summary {
+  background: white;
+  padding: 22px;
+  border-radius: 12px;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+
+.passport-summary h2 {
+  margin-bottom: 14px;
+  color: #333;
+}
+
+.passport-summary ul {
+  list-style: disc inside;
+  color: #555;
+  line-height: 1.8;
+}
+
+.payment-summary {
+  margin: 20px 0;
+  padding: 16px;
+  background: #f5f7ff;
+  border-left: 4px solid #667eea;
+  border-radius: 10px;
+  color: #333;
+  line-height: 1.6;
+}
+
+.payment-message {
+  margin: 16px 0;
+  padding: 14px;
+  background: #eef3ff;
+  border-left: 4px solid #667eea;
+  border-radius: 10px;
+  color: #333;
+}
+
+.product-link {
+  color: #667eea;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.product-link:hover {
+  text-decoration: underline;
+}
+
+.attestation-item {  background: #f0fdf4;
   padding: 12px;
   border-radius: 6px;
   border-left: 3px solid #10b981;
@@ -467,4 +583,38 @@ body {
   .confirm-box {
     padding: 20px;
   }
+}
+
+/* Payment Summary Styles */
+.payment-summary {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 12px;
+}
+
+.payment-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.payment-item:last-child {
+  border-bottom: none;
+}
+
+.payment-label {
+  font-weight: 600;
+  color: #495057;
+  font-size: 14px;
+}
+
+.payment-value {
+  font-family: 'Courier New', monospace;
+  color: #212529;
+  font-size: 14px;
+  font-weight: 500;
 }

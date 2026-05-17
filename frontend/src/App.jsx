@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
+import { useState } from "react";
 import axios from "axios";
+import { getAccountAddress } from "./kiteAA";
 import "./App.css";
 
 export default function App() {
@@ -8,8 +9,8 @@ export default function App() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [walletAddress, setWalletAddress] = useState(null);
-  const [authLoading, setAuthLoading] = useState(false);
-  const [authError, setAuthError] = useState(null);
+  const [walletInput, setWalletInput] = useState("");
+  const [derivedAAAddress, setDerivedAAAddress] = useState(null);
   
   // Product search
   const [productQuery, setProductQuery] = useState("");
@@ -18,6 +19,7 @@ export default function App() {
   const [searchingProduct, setSearchingProduct] = useState(false);
   const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [confirmPaymentResult, setConfirmPaymentResult] = useState(null);
+  const [showPassportInstructions, setShowPassportInstructions] = useState(false);
   
   // Kite health
   const [kiteStatus, setKiteStatus] = useState(null);
@@ -27,75 +29,27 @@ export default function App() {
   const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8001";
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-  // Debug - log API base on mount
-  useEffect(() => {
-    console.log("🚀 App loaded");
-    console.log("📡 API_BASE:", API_BASE);
-    console.log("🌍 Environment REACT_APP_API_URL:", process.env.REACT_APP_API_URL);
-  }, [API_BASE]);
-
   const handleRegister = async () => {
-    console.log("🔵 Register button clicked");
-    
-    if (!username.trim() || !password.trim()) {
-      console.warn("⚠️ Username or password empty");
-      setAuthError("Please enter username and password");
-      return;
-    }
-
-    setAuthLoading(true);
-    setAuthError(null);
-    
     try {
-      console.log("📤 Sending register request to:", `${API_BASE}/register`);
       const res = await axios.post(`${API_BASE}/register`, { username, password });
-      console.log("✅ Registration successful:", res.data);
       setToken(res.data.token);
-      setScreen("commerce");
+      setScreen("passportSetup");
       setUsername("");
       setPassword("");
-      setAuthError(null);
     } catch (e) {
-      console.error("❌ Registration failed:", e);
-      const errorMsg = e.response?.data?.detail || e.message || "Unknown error";
-      console.error("Error details:", errorMsg);
-      setAuthError(`Registration failed: ${errorMsg}`);
-    } finally {
-      setAuthLoading(false);
+      alert(`Registration failed: ${e.response?.data?.detail || e.message}`);
     }
   };
 
   const handleLogin = async () => {
-    console.log("🔵 Login button clicked");
-    
-    if (!username.trim() || !password.trim()) {
-      console.warn("⚠️ Username or password empty");
-      setAuthError("Please enter username and password");
-      return;
-    }
-
-    setAuthLoading(true);
-    setAuthError(null);
-    
     try {
-      console.log("📤 Sending login request to:", `${API_BASE}/login`);
       const res = await axios.post(`${API_BASE}/login`, { username, password });
-      console.log("✅ Login successful:", res.data);
       setToken(res.data.token);
-      setScreen("commerce");
+      setScreen("passportSetup");
       setUsername("");
       setPassword("");
-      setAuthError(null);
-      checkKiteHealth();
-      await loadKiteSettlements();
     } catch (e) {
-      console.error("❌ Login failed:", e);
-      const errorMsg = e.response?.data?.detail || e.message || "Unknown error";
-      console.error("Error details:", errorMsg);
-      console.error("Full error:", e);
-      setAuthError(`Login failed: ${errorMsg}`);
-    } finally {
-      setAuthLoading(false);
+      alert(`Login failed: ${e.response?.data?.detail || e.message}`);
     }
   };
 
@@ -115,14 +69,6 @@ export default function App() {
     } catch (e) {
       console.error("Failed to load kite settlements:", e);
     }
-  };
-
-  const getApiErrorMessage = (error) => {
-    if (!error) return "Unknown error";
-    if (typeof error === "string") return error;
-    if (error.detail) return error.detail;
-    if (error.message) return error.message;
-    return JSON.stringify(error);
   };
 
   const handleProductSearch = async () => {
@@ -159,7 +105,7 @@ export default function App() {
         const used = Number(e.response.data.product?.price || 0);
         setRemainingBudget(Number(productBudget) - used);
       } else {
-        const error = getApiErrorMessage(e.response?.data || e.message);
+        const error = e.response?.data || e.message;
         setProductResults({ status: "error", error });
       }
     } finally {
@@ -167,67 +113,21 @@ export default function App() {
     }
   };
 
-  const connectWallet = async () => {
-    if (!window.ethereum) {
-      alert("MetaMask not detected. Please install MetaMask.");
+  const handleWalletAddressSubmit = async () => {
+    if (!walletInput || !walletInput.trim()) {
+      alert("Enter your Kite AA smart wallet address or owner address.");
       return;
     }
 
-    // Check for multiple wallet providers
-    const providers = [];
-    if (window.ethereum) {
-      providers.push("MetaMask");
-      console.log("🔍 MetaMask detected, isMetaMask:", window.ethereum.isMetaMask);
-      console.log("🔍 MetaMask version:", window.ethereum.isMetaMask ? "MetaMask" : "Unknown MetaMask-like wallet");
-    }
-    if (window.coinbaseWalletExtension) providers.push("Coinbase Wallet");
-    if (window.trustwallet) providers.push("Trust Wallet");
-    if (window.binance) providers.push("Binance Wallet");
-    if (window.phantom) providers.push("Phantom");
-    if (window.solflare) providers.push("Solflare");
-    if (window.exodus) providers.push("Exodus");
-    if (window.tally) providers.push("Tally");
-    if (window.brave) providers.push("Brave Wallet");
-    
-    console.log("🔍 Available wallet providers:", providers);
-    if (providers.length > 1) {
-      console.warn("⚠️ Multiple wallet extensions detected! This could cause signature conflicts.");
-      console.warn("Available providers:", providers);
-      alert("WARNING: Multiple wallet extensions detected! This may cause signature issues.");
-    }
-
-    // Check if the ethereum provider is actually MetaMask
-    if (window.ethereum && !window.ethereum.isMetaMask) {
-      console.warn("⚠️ window.ethereum is not MetaMask! It might be another wallet.");
-      console.warn("Provider name:", window.ethereum.constructor?.name);
-      console.warn("Provider isCoinbaseWallet:", window.ethereum.isCoinbaseWallet);
-      console.warn("Provider isTrust:", window.ethereum.isTrust);
-      console.warn("Provider isBraveWallet:", window.ethereum.isBraveWallet);
-      alert("WARNING: Your browser has a non-MetaMask ethereum provider. This could cause signature issues.");
-    }
-
+    const normalized = walletInput.trim();
     try {
-      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-      const address = accounts[0];
-      setWalletAddress(address);
-      
-      // List all available accounts
-      const allAccounts = await window.ethereum.request({ method: "eth_accounts" });
-      console.log("✅ Connected wallet:", address);
-      console.log("📋 All available accounts in MetaMask:", allAccounts);
-      
-      if (allAccounts.length > 1) {
-        console.warn("⚠️ You have multiple accounts in MetaMask!");
-        console.warn("Available accounts:");
-        allAccounts.forEach((acc, i) => console.warn(`  ${i+1}. ${acc}`));
-        console.warn(`Make sure ${address} is selected when signing!`);
-      }
-      
-      return address;
+      const aaAddress = await getAccountAddress(normalized);
+      setWalletAddress(aaAddress || normalized);
+      setDerivedAAAddress(aaAddress);
     } catch (e) {
-      console.error("Wallet connect failed", e);
-      alert("Wallet connection failed: " + e.message);
-      return null;
+      console.warn("Could not derive Kite AA address, using entered address:", e);
+      setWalletAddress(normalized);
+      setDerivedAAAddress(null);
     }
   };
 
@@ -237,262 +137,193 @@ export default function App() {
       return;
     }
 
-    // Always get the current connected account from MetaMask
-    let address;
-    try {
-      const accounts = await window.ethereum.request({ method: "eth_accounts" });
-      address = accounts[0];
-      if (!address) {
-        address = await connectWallet();
-        if (!address) return;
-      }
-      // Update state to keep UI in sync
-      setWalletAddress(address);
-    } catch (e) {
-      console.error("Failed to get current account:", e);
-      alert("Please connect your wallet first");
+    const normalizedInput = walletInput?.trim();
+    const effectiveWallet = walletAddress || normalizedInput;
+
+    if (!effectiveWallet) {
+      alert("Provide your Kite AA wallet address before confirming payment.");
       return;
     }
 
-    console.log("DEBUG: Using wallet address for payment:", address);
-
-    // List all accounts for debugging
-    try {
-      const allAccounts = await window.ethereum.request({ method: "eth_accounts" });
-      console.log("📋 All available accounts in MetaMask:", allAccounts);
-      
-      if (allAccounts.length > 1) {
-        console.warn("⚠️ Multiple accounts detected!");
-        console.warn("Available accounts:");
-        allAccounts.forEach((acc, i) => console.warn(`  ${i+1}. ${acc}`));
-        console.warn(`Make sure ${address} is selected when signing!`);
+    let resolvedWalletAddress = effectiveWallet;
+    if (!walletAddress && normalizedInput) {
+      try {
+        const aaAddress = await getAccountAddress(normalizedInput);
+        if (aaAddress) {
+          resolvedWalletAddress = aaAddress;
+          setWalletAddress(aaAddress);
+          setDerivedAAAddress(aaAddress);
+        } else {
+          setWalletAddress(normalizedInput);
+        }
+      } catch (e) {
+        console.warn("Could not derive Kite AA address from typed input, using raw value:", e);
+        setWalletAddress(normalizedInput);
+        setDerivedAAAddress(null);
       }
-    } catch (e) {
-      console.log("Could not list accounts:", e);
     }
 
     const product = productResults.product;
-
-    // Sanitize product name - remove newlines and extra whitespace
-    const cleanProductName = product.name.replace(/\s+/g, ' ').trim();
-    
-    // Create a clean product object with sanitized name for both signing AND sending
-    const cleanProduct = {
-      ...product,
-      name: cleanProductName
-    };
-    
-    const paymentPayload = {
-      currency: cleanProduct.currency || "USDT",
-      price: cleanProduct.price,
-      product_name: cleanProductName
-    };
-
-    const purchaseToken = productResults.product?.purchase_token;
-
-    // Create message with keys in sorted order (matching backend JSON dumps sort_keys=True)
-    const sortedKeys = Object.keys(paymentPayload).sort();
-    const sortedPayload = {};
-    sortedKeys.forEach(key => {
-      sortedPayload[key] = paymentPayload[key];
-    });
-    const message = `Autobuy payment confirmation ${JSON.stringify(sortedPayload)}`;
-
-    console.log("DEBUG: Payment payload:", paymentPayload);
-    console.log("DEBUG: Sorted payload:", sortedPayload);
-    console.log("DEBUG: Message to sign:", message);
-    console.log("DEBUG: Wallet address:", address);
+    const productToken = product.purchase_token;
 
     try {
-      console.log("DEBUG: About to request signature from MetaMask");
-      console.log("DEBUG: IMPORTANT - Make sure the correct account is selected in MetaMask popup!");
-      console.log(`DEBUG: Expected account: ${address}`);
-      
-      // Request accounts again to ensure we have the latest
-      const currentAccounts = await window.ethereum.request({
-        method: "eth_accounts",
-      });
-      const currentAddress = currentAccounts[0];
-      console.log(`DEBUG: Current active account: ${currentAddress}`);
-      
-      if (currentAddress.toLowerCase() !== address.toLowerCase()) {
-        console.warn(`⚠️ Account mismatch! Current: ${currentAddress}, Expected: ${address}`);
-        console.warn("Please switch to the correct account in MetaMask first!");
-        alert(`Please switch to account ${address} in MetaMask before signing!`);
-        return;
-      }
-      
-      // Double-check we're on the right account right before signing
-      console.log("🔍 Double-checking account before signing...");
-      const finalCheckAccounts = await window.ethereum.request({ method: "eth_accounts" });
-      const finalAddress = finalCheckAccounts[0];
-      if (finalAddress.toLowerCase() !== address.toLowerCase()) {
-        console.error(`❌ Account changed! Was: ${address}, Now: ${finalAddress}`);
-        alert(`Account changed! Please keep ${address} selected in MetaMask.`);
-        return;
-      }
-      
-      console.log("✅ Account confirmed, requesting signature...");
-      console.log("DEBUG: Final message being signed:", JSON.stringify(message));
-      console.log("DEBUG: Message length:", message.length);
-      console.log("DEBUG: Message bytes (first 100):", message.slice(0, 100));
-      
-      // Check wallet provider details right before signing
-      console.log("🔍 About to request signature from ethereum provider...");
-      console.log("🔍 Provider details:");
-      console.log("  - isMetaMask:", window.ethereum?.isMetaMask);
-      console.log("  - isCoinbaseWallet:", window.ethereum?.isCoinbaseWallet);
-      console.log("  - isTrust:", window.ethereum?.isTrust);
-      console.log("  - provider name:", window.ethereum?.constructor?.name);
-      console.log("  - provider keys:", Object.keys(window.ethereum || {}));
-      
-      // Check for other wallet extensions
-      const otherWallets = [];
-      if (window.coinbaseWalletExtension) otherWallets.push("Coinbase Wallet");
-      if (window.trustwallet) otherWallets.push("Trust Wallet");
-      if (window.binance) otherWallets.push("Binance Wallet");
-      if (window.phantom) otherWallets.push("Phantom");
-      if (window.solflare) otherWallets.push("Solflare");
-      if (window.exodus) otherWallets.push("Exodus");
-      if (window.tally) otherWallets.push("Tally");
-      if (window.brave) otherWallets.push("Brave Wallet");
-      
-      if (otherWallets.length > 0) {
-        console.warn("⚠️ Other wallet extensions detected:", otherWallets);
-        console.warn("These might be intercepting your MetaMask requests!");
-        alert("WARNING: Other wallet extensions detected! They might be signing instead of MetaMask.");
-      }
-      
-      const signature = await window.ethereum.request({
-        method: "personal_sign",
-        params: [message, finalAddress]
-      });
-
-      console.log("☑️ Signature received:", signature);
-      console.log("DEBUG: Signature length:", signature.length);
-      console.log("DEBUG: Signature starts with 0x:", signature.startsWith("0x"));
-      console.log("DEBUG: Signature length:", signature.length);
-      console.log("DEBUG: Clean product being sent:", cleanProduct);
-      console.log("⚠️ IMPORTANT: If you see 401 Unauthorized error, check that you signed with the correct MetaMask account!");
-
       setConfirmingPayment(true);
       setConfirmPaymentResult(null);
 
+      const requestBody = {
+        product,
+        wallet_address: resolvedWalletAddress,
+      };
+      if (productToken) {
+        requestBody.product_token = productToken;
+      }
+
       const response = await axios.post(
         `${API_BASE}/confirm-payment`,
-        {
-          product: cleanProduct,
-          product_token: purchaseToken,
-          wallet_address: address,
-          signature
-        },
+        requestBody,
         { headers }
       );
 
-      if (response.data?.payment_tx) {
-        console.log("DEBUG: Unsigned payment tx payload:", response.data.payment_tx);
-        const txHash = await window.ethereum.request({
-          method: "eth_sendTransaction",
-          params: [response.data.payment_tx]
-        });
-
-        setConfirmPaymentResult({
-          status: "success",
-          data: {
-            ...response.data,
-            payment_status: "wallet_submission_completed"
-          },
-          txHash,
-          message: "Payment submitted from wallet."
-        });
-      } else {
-        setConfirmPaymentResult({
-          status: "success",
-          data: {
-            ...response.data,
-            payment_status: response.data?.payment_status || response.data?.status || "completed"
-          },
-          txHash: null,
-          message: response.data?.message || "Payment flow completed."
-        });
+      const data = response.data;
+      if (!data.payment_tx) {
+        throw new Error("Payment request data missing from confirm-payment response");
       }
+
+      setConfirmPaymentResult({
+        status: "success",
+        data: {
+          ...data,
+          payment_status: "ready",
+          message: "Payment request prepared. Submit through Kite Agent Passport execution.",
+        }
+      });
+
+      await loadKiteSettlements();
     } catch (e) {
-      const error = getApiErrorMessage(e.response?.data || e.message || e);
-      setConfirmPaymentResult({ status: "error", error });
+      setConfirmPaymentResult({ status: "error", error: e.response?.data || e.message });
     } finally {
       setConfirmingPayment(false);
     }
   };
 
+  const handlePassportReady = async () => {
+    if (!token) {
+      setScreen("login");
+      return;
+    }
+    setScreen("commerce");
+    checkKiteHealth();
+    await loadKiteSettlements();
+  };
+
   const handleLogout = () => {
     setToken(null);
     setScreen("login");
-    setWalletAddress(null);
-    setProductResults(null);
-    setConfirmPaymentResult(null);
-    setKiteStatus(null);
-    setSettlements([]);
-    setRemainingBudget(null);
-    setAuthError(null);
   };
 
   return (
     <div className="App">
       <header className="header">
-        <h1>🤖 Valora AutoBuy Agent AI E-Commerces</h1>
-        {token && (
-          <div>
-            <button onClick={handleLogout} className="logout-btn">Logout</button>
-          </div>
-        )}
+        <h1>🚀 Kite Agent Passport</h1>
+        <p className="hero-subtitle">
+          Let your AI agent discover and pay for services on your behalf while you stay in control with scoped Passport agent execution.
+        </p>
+        {token && <button onClick={handleLogout} className="logout-btn">Logout</button>}
       </header>
 
       {/* Login / Register */}
       {screen === "login" && (
         <div className="auth-container">
           <div className="auth-box">
-            <h2>Get Started</h2>
-            {authError && (
-              <div style={{
-                background: '#fee',
-                color: '#c33',
-                padding: '12px',
-                borderRadius: '6px',
-                marginBottom: '12px',
-                border: '1px solid #fcc'
-              }}>
-                {authError}
-              </div>
-            )}
+            <h2>Get Started with Kite Agent Passport</h2>
+            <p className="auth-copy">
+              Login to your Passport-backed account, then approve your AI agent's payment execution using a secure passkey. Your agent can discover and pay for services autonomously within the controls you define.
+            </p>
             <input
               type="text"
               placeholder="Username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              disabled={authLoading}
             />
             <input
               type="password"
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              disabled={authLoading}
             />
-            <button 
-              onClick={handleLogin}
-              disabled={authLoading || !username.trim() || !password.trim()}
-              style={{opacity: authLoading || !username.trim() || !password.trim() ? 0.6 : 1}}
-            >
-              {authLoading ? "🔄 Logging in..." : "Login"}
+            <button onClick={handleLogin}>Login to Passport</button>
+            <button onClick={handleRegister} className="secondary">
+              Create Passport Account
             </button>
-            <button 
-              onClick={handleRegister} 
+            <button
               className="secondary"
-              disabled={authLoading || !username.trim() || !password.trim()}
-              style={{opacity: authLoading || !username.trim() || !password.trim() ? 0.6 : 1}}
+              onClick={() => setScreen("passportSetup")}
+              style={{ marginTop: '12px' }}
             >
-              {authLoading ? "🔄 Registering..." : "Register"}
+              Launch Passport Setup
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Passport Setup */}
+      {screen === "passportSetup" && (
+        <div className="container">
+          <div className="passport-setup-box">
+            <h2>Passport Onboarding</h2>
+            <p>
+              Your AI agent uses Kite Agent Passport to discover services, execute payments, and pay on your behalf. Review these steps, then continue when Passport is ready.
+            </p>
+            <div className="passport-steps">
+              <div className="passport-step">
+                <strong>1. Install Passport CLI</strong>
+                <p>Use the official Kite Agent Passport installer link below if you do not have it yet.</p>
+              </div>
+              <div className="passport-step">
+                <strong>2. Sign up and create a passkey</strong>
+                <p>Verify your email and set up a secure passkey so Passport can approve payments.</p>
+              </div>
+              <div className="passport-step">
+                <strong>3. Register the AutoBuy agent</strong>
+                <p>Register the agent so it can request and execute Passport payment approvals.</p>
+              </div>
+              <div className="passport-step">
+                <strong>4. Confirm a Passport payment</strong>
+                <p>When your agent needs to pay, approve a session and let it work within your limits.</p>
+              </div>
+            </div>
+            <div className="passport-actions">
+              <button onClick={handlePassportReady} className="primary">
+                I have Passport ready
+              </button>
+              <button
+                className="secondary"
+                onClick={() => setShowPassportInstructions(true)}
+              >
+                View Passport Instructions
+              </button>
+            </div>
+            {showPassportInstructions && (
+              <div className="passport-instructions-box" style={{ marginTop: '18px', padding: '16px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#fafafa' }}>
+                <h3>Need help installing Passport?</h3>
+                <p>Try these steps to get started:</p>
+                <ol>
+                  <li>Install Kite Agent Passport on your computer.</li>
+                  <li>Sign up and verify your email.</li>
+                  <li>Create a secure passkey for payment approvals.</li>
+                  <li>Register the AutoBuy agent in Passport.</li>
+                </ol>
+                <p>
+                  For a full installation guide, visit:
+                  <a href="https://agentpassport.ai" target="_blank" rel="noreferrer" style={{ marginLeft: '4px' }}>
+                    agentpassport.ai
+                  </a>
+                </p>
+                <button onClick={() => setShowPassportInstructions(false)} className="secondary">
+                  Hide instructions
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -509,90 +340,142 @@ export default function App() {
             )}
           </div>
 
+          <div className="passport-summary">
+            <h2>How Kite Agent Passport Works</h2>
+            <ul>
+              <li>Your AI agent searches for products or services that match your request.</li>
+              <li>When payment is needed, it submits a Passport payment request with scoped controls.</li>
+              <li>You approve the session once with your passkey, then the agent can act autonomously within those limits.</li>
+              <li>No extra approvals are required until the session expires or the budget is used.</li>
+            </ul>
+          </div>
+
           <div className="product-search-box">
-            
-            {/* Wallet Connection */}
-            {!walletAddress ? (
-              <div style={{marginBottom: '20px'}}>
-                <button onClick={connectWallet} className="connect-wallet-btn">
-                  🔐 Connect MetaMask Wallet
-                </button>
-              </div>
-            ) : (
-              <div style={{marginBottom: '20px'}} />
-            )}
+            <h2>Find Product Online</h2>
+            <div style={{marginBottom: '10px'}}>
+              {walletAddress ? (
+                <>
+                  <p>AA Wallet address in use: <strong>{walletAddress}</strong></p>
+                  {derivedAAAddress && derivedAAAddress !== walletAddress && (
+                    <p className="hint">Derived AA address: {derivedAAAddress}</p>
+                  )}
+                </>
+              ) : (
+                <div style={{display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap'}}>
+                  <input
+                    type="text"
+                    placeholder="Paste your Kite AA wallet address or EOA owner address"
+                    value={walletInput}
+                    onChange={(e) => setWalletInput(e.target.value)}
+                    style={{flex: 1, minWidth: '280px', padding: '8px'}}
+                  />
+                  <button onClick={handleWalletAddressSubmit} style={{marginBottom:'10px'}}>
+                    Use Kite AA Wallet
+                  </button>
+                </div>
+              )}
+            </div>
+            <input
+              type="text"
+              placeholder="e.g. laptop $500 to $600"
+              value={productQuery}
+              onChange={(e) => setProductQuery(e.target.value)}
+            />
+            <input
+              type="number"
+              placeholder="Budget (USD)"
+              value={productBudget}
+              onChange={(e) => setProductBudget(e.target.value)}
+            />
+            <button onClick={handleProductSearch} disabled={searchingProduct}>
+              {searchingProduct ? "Searching..." : "Search Product"}
+            </button>
 
-            {walletAddress && (
-              <>
-                <input
-                  type="text"
-                  placeholder="e.g. laptop $500 to $600"
-                  value={productQuery}
-                  onChange={(e) => setProductQuery(e.target.value)}
-                />
-                <input
-                  type="number"
-                  placeholder="Budget (USD / USDC)"
-                  value={productBudget}
-                  onChange={(e) => setProductBudget(e.target.value)}
-                />
-                <button onClick={handleProductSearch} disabled={searchingProduct}>
-                  {searchingProduct ? "🔍 Searching..." : "🔍 Search Product"}
-                </button>
+            {productResults && (
+              <div className="product-results">
+                {productResults.status === "error" ? (
+                  <p className="error">Error: {JSON.stringify(productResults.error)}</p>
+                ) : productResults.status === "payment_required" ? (
+                  <>
+                    <h3>Best Match</h3>
+                    <p>{productResults.product.name}</p>
+                    <p>Price: ${productResults.product.price.toFixed(2)}</p>
+                    <p>Source: <strong>{productResults.product.source || productResults.product.store || 'Unknown'}</strong></p>
+                    <p>Remaining budget: ${remainingBudget != null ? remainingBudget.toFixed(2) : 'N/A'}</p>
+                    <p>In-range: {productResults.product.price <= Number(productBudget) ? 'yes' : 'no'}</p>
+                    <p>Not sponsor: {(!productResults.product.name.toLowerCase().includes('ad based') && !productResults.product.name.toLowerCase().includes('sponsored')) ? 'yes' : 'no'}</p>
+                    <p className="payment-message">{productResults.message}</p>
 
-                {productResults && (
-                  <div className="product-results">
-                    {productResults.status === "error" ? (
-                      <p className="error">Error: {productResults.error}</p>
-                    ) : productResults.status === "payment_required" ? (
-                      <>
-                        <h3>Best Match</h3>
-                        <p>{productResults.product.name}</p>
-                        <p>Price: ${productResults.product.price.toFixed(2)}</p>
-                        <p>Source: {productResults.product.store || productResults.product.source}</p>
-                        <p>Remaining budget: ${remainingBudget != null ? remainingBudget.toFixed(2) : 'N/A'}</p>
-                        <p>In-range: {productResults.product.price <= Number(productBudget) ? 'yes' : 'no'}</p>
-                        <p>Not sponsor: {(!productResults.product.name.toLowerCase().includes('ad based') && !productResults.product.name.toLowerCase().includes('sponsored')) ? 'yes' : 'no'}</p>
-                        <p className="payment-message">{productResults.message}</p>
+                    <h4>Top Results</h4>
+                    <ul>
+                      {productResults.search_results?.map((item, idx) => (
+                        <li key={idx}>
+                          <strong>{item.name}</strong> - ${item.price.toFixed(2)} - {item.source || item.store || 'Unknown source'}
+                        </li>
+                      ))}
+                    </ul>
 
-                        <h4>Top Results</h4>
-                        <ul>
-                          {productResults.search_results?.map((item, idx) => (
-                            <li key={idx}>
-                              <strong>{item.name}</strong> - ${item.price.toFixed(2)} - {item.store}
-                            </li>
-                          ))}
-                        </ul>
+                    <div className="payment-summary">
+                      <p>
+                        Your AI agent has requested a Passport payment for this purchase. Confirm it below to let Passport execute the payment with scoped controls.
+                      </p>
+                    </div>
 
-                        <div className="payment-confirmation">
-                          <button onClick={handleConfirmProductPayment} disabled={confirmingPayment}>
-                            {confirmingPayment ? "⏳ Confirming payment..." : "💳 Confirm KITE Payment"}
-                          </button>
+                    <div className="payment-confirmation">
+                      <button onClick={handleConfirmProductPayment} disabled={confirmingPayment}>
+                        {confirmingPayment ? "Confirming payment..." : "Confirm Passport payment"}
+                      </button>
 
-                          {confirmPaymentResult && confirmPaymentResult.status === "success" && (
-                            <div className="success">
-                              <h5>✅ Payment Settled on KITE</h5>
-                              <p>Tx Hash: {confirmPaymentResult.txHash || confirmPaymentResult.data?.tx_hash || "Pending"}</p>
-                              <p>Status: {confirmPaymentResult.txHash ? "Submitted from wallet" : confirmPaymentResult.data?.payment_status || confirmPaymentResult.message || "Submitted"}</p>
-                              {(confirmPaymentResult.data?.product_url || confirmPaymentResult.data?.product?.url) ? (
-                                <p><a href={confirmPaymentResult.data.product_url || confirmPaymentResult.data.product.url} target="_blank" rel="noreferrer">🔗 Open secured purchase link</a></p>
-                              ) : (
-                                <p>Your service charge payment is complete. A protected purchase URL will be shown once confirmation is complete.</p>
-                              )}
+                      {confirmPaymentResult && confirmPaymentResult.status === "success" && (
+                        <div className="success">
+                          <h5>Payment Request Ready</h5>
+                          <p>Status: <strong>{confirmPaymentResult.data.payment_status}</strong></p>
+                          {confirmPaymentResult.data.payment_instructions && (
+                            <p>{confirmPaymentResult.data.payment_instructions}</p>
+                          )}
+                          {confirmPaymentResult.data.tx_hash && (
+                            <p>Tx Hash: <code>{confirmPaymentResult.data.tx_hash?.substring(0, 20)}...</code></p>
+                          )}
+                      {confirmPaymentResult.data.product_source && (
+                        <p>Product source: <strong>{confirmPaymentResult.data.product_source}</strong></p>
+                      )}
+                      {confirmPaymentResult.data.product_url && (
+                        <p><a href={confirmPaymentResult.data.product_url} target="_blank" rel="noreferrer" className="product-link">🛒 Open Product Link</a></p>
+                      )}
+                          {confirmPaymentResult.data.explorer_url && (
+                            <p><a href={confirmPaymentResult.data.explorer_url} target="_blank" rel="noreferrer">View on Block Explorer</a></p>
+                          )}
+                          {confirmPaymentResult.data.payment_tx && (
+                            <div className="payment-payload">
+                              <h5>Payment Details</h5>
+                              <div className="payment-summary">
+                                <div className="payment-item">
+                                  <span className="payment-label">Amount:</span>
+                                  <span className="payment-value">{confirmPaymentResult.data.payment_tx.amount} {confirmPaymentResult.data.payment_tx.asset || 'USDC'}</span>
+                                </div>
+                                <div className="payment-item">
+                                  <span className="payment-label">Recipient:</span>
+                                  <span className="payment-value">{confirmPaymentResult.data.payment_tx.recipient?.substring(0, 6)}...{confirmPaymentResult.data.payment_tx.recipient?.substring(38)}</span>
+                                </div>
+                                <div className="payment-item">
+                                  <span className="payment-label">Transaction:</span>
+                                  <span className="payment-value">{confirmPaymentResult.data.payment_tx.tx_hash?.substring(0, 20)}...</span>
+                                </div>
+                              </div>
                             </div>
                           )}
-
-                          {confirmPaymentResult && confirmPaymentResult.status === "error" && (
-                            <div className="error">Error: {confirmPaymentResult.error}</div>
-                          )}
                         </div>
-                      </>
-                    ) : (
-                      <p>No matching product found within budget.</p>
-                    )}
-                  </div>
+                      )}
+
+                      {confirmPaymentResult && confirmPaymentResult.status === "error" && (
+                        <div className="error">Error: {JSON.stringify(confirmPaymentResult.error)}</div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <p>No matching product found within budget.</p>
                 )}
-              </>
+              </div>
             )}
           </div>
 

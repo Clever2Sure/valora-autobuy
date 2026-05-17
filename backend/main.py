@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional
 import os
 import json
 import time
@@ -16,6 +17,9 @@ load_dotenv(backend_env, override=True)
 
 # Valora treasury recipient for service charge payments
 VALORA_TREASURY_ADDRESS = os.getenv("VALORA_TREASURY_ADDRESS")
+
+# Kite Passport base URL for API calls
+KITE_PASSPORT_BASE_URL = os.getenv("KITE_PASSPORT_BASE_URL")
 
 pending_links_file = os.path.join(backend_dir, "pending_purchase_links.json")
 
@@ -43,13 +47,12 @@ pending_purchase_links = load_pending_purchase_links()
 # Existing imports
 from .agent import decide_purchase
 from .constraints import validate
-from .web3_utils import send_usdc, w3
-from .kite import settle_usdc, get_settlements
 from .subscriptions import (
     create_subscription, get_subscription, cancel_subscription,
     pause_subscription, resume_subscription, get_due_subscriptions,
     update_subscription_charge
 )
+from .kite_passport import get_passport
 from .users import register_user, authenticate_user, get_user_by_token
 
 # New imports
@@ -58,9 +61,10 @@ from .kite_settlement import (
     verify_kite_attestation, get_user_attestations, kite_health_check
 )
 from .blockchain_payment import (
-    payment_processor, MIN_USDT_CHARGE,
-    USDT_ADDRESS, KITE_CHAIN_ID, KITE_RPC
+    payment_processor, MIN_STABLECOIN_CHARGE,
+    STABLECOIN_ADDRESS, PAYMENT_TOKEN_SYMBOL, KITE_CHAIN_ID, KITE_RPC
 )
+from .kite import get_settlements
 from web3 import Web3
 
 if not VALORA_TREASURY_ADDRESS:
@@ -77,7 +81,6 @@ if not Web3.is_address(VALORA_TREASURY_ADDRESS):
 app = FastAPI(title="AutoBuy Agent")
 
 # Store pending product URLs until payment completes
-pending_purchase_links = {}
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8001")
 
 # CORS for frontend
@@ -142,12 +145,92 @@ async def kite_health():
     return kite_health_check()
 
 
-@app.get("/kite/usdt-debug")
-async def kite_usdt_debug():
-    """Debug endpoint for configured KITE USDT contract and detected decimals"""
+@app.get("/passport/health")
+async def passport_health(user=Depends(get_current_user)):
+    """Check Kite Passport CLI availability and status."""
     try:
-        usdt_address_checksum = Web3.to_checksum_address(USDT_ADDRESS)
-        contract_code = payment_processor.w3.eth.get_code(usdt_address_checksum).hex()
+        passport = get_passport(base_url=KITE_PASSPORT_BASE_URL)
+        version = passport.get_version()
+        return {"ready": True, "version": version}
+    except Exception as e:
+        return {"ready": False, "error": str(e)}
+
+
+@app.post("/passport/agent/register")
+async def passport_register_agent(request: dict, user=Depends(get_current_user)):
+    name = request.get("name", "Valora AutoBuy Agent")
+    description = request.get("description", "AI agent for automated product purchases")
+    try:
+        passport = get_passport(base_url=KITE_PASSPORT_BASE_URL)
+        return passport.register_agent(name, description)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Passport agent registration failed: {str(e)}")
+
+
+@app.get("/passport/agent/list")
+async def passport_list_agents(user=Depends(get_current_user)):
+    try:
+        passport = get_passport(base_url=KITE_PASSPORT_BASE_URL)
+        return passport.list_agents()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Passport agent list failed: {str(e)}")
+
+
+@app.post("/passport/session/create")
+async def passport_create_session(request: dict, user=Depends(get_current_user)):
+    raise HTTPException(
+        status_code=410,
+        detail="Passport no longer supports session-based API. Use agent-based execution via kpass agent model."
+    )
+
+
+@app.get("/passport/session/list")
+async def passport_list_sessions(user=Depends(get_current_user)):
+    raise HTTPException(
+        status_code=410,
+        detail="Passport no longer supports session-based API. Use agent-based execution via kpass agent model."
+    )
+
+
+@app.get("/passport/session/status/{session_id}")
+async def passport_session_status(session_id: str, user=Depends(get_current_user)):
+    raise HTTPException(
+        status_code=410,
+        detail="Passport no longer supports session-based API. Use agent-based execution via kpass agent model."
+    )
+
+
+@app.get("/passport/services")
+async def passport_services(query: Optional[str] = None, payment_approach: Optional[str] = None, asset: Optional[str] = None, user=Depends(get_current_user)):
+    try:
+        passport = get_passport(base_url=KITE_PASSPORT_BASE_URL)
+        return passport.discover_services(query=query, payment_approach=payment_approach, asset=asset, limit=10)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Passport service discovery failed: {str(e)}")
+
+
+@app.post("/passport/execute")
+async def passport_execute(request: dict, user=Depends(get_current_user)):
+    service_id = request.get("service_id")
+    amount = request.get("amount")
+    parameters = request.get("parameters", {})
+
+    if not service_id or not amount:
+        raise HTTPException(status_code=400, detail="service_id and amount are required")
+
+    try:
+        passport = get_passport(base_url=KITE_PASSPORT_BASE_URL)
+        return passport.execute_agent_request(service_id, str(amount), parameters=parameters)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Passport agent execution failed: {str(e)}")
+
+
+@app.get("/kite/stablecoin-debug")
+async def kite_stablecoin_debug():
+    """Debug endpoint for configured KITE stablecoin (USDC) contract and detected decimals"""
+    try:
+        stablecoin_address_checksum = Web3.to_checksum_address(STABLECOIN_ADDRESS)
+        contract_code = payment_processor.w3.eth.get_code(stablecoin_address_checksum).hex()
         code_size = len(contract_code) - 2
         contract_deployed = code_size > 0
     except Exception as e:
@@ -160,16 +243,16 @@ async def kite_usdt_debug():
 
     return {
         "connected": payment_processor.w3.is_connected(),
-        "usdt_address": USDT_ADDRESS,
-        "usdt_address_checksum": usdt_address_checksum if contract_deployed or code_error is None else None,
-        "usdt_decimals": payment_processor.usdt_decimals,
+        "stablecoin_address": STABLECOIN_ADDRESS,
+        "stablecoin_address_checksum": stablecoin_address_checksum if contract_deployed or code_error is None else None,
+        "stablecoin_decimals": payment_processor.stablecoin_decimals,
         "contract_code_size": code_size,
         "contract_deployed": contract_deployed,
         "contract_code_error": code_error,
         "treasury_address": VALORA_TREASURY_ADDRESS,
         "chain_id": KITE_CHAIN_ID,
         "rpc_url": KITE_RPC,
-        "note": "USDT_ADDRESS is the USDT contract. VALORA_TREASURY_ADDRESS must be the full KITE wallet address that receives service fees."
+        "note": f"{PAYMENT_TOKEN_SYMBOL} is the configured stablecoin contract. VALORA_TREASURY_ADDRESS must be the full KITE wallet address that receives service fees."
     }
 
 
@@ -237,34 +320,33 @@ async def buy(request: dict, user=Depends(get_current_user)):
         "name": product["name"],
         "price": product["price"],
         "rating": product.get("rating"),
-        "source": product.get("source"),
+        "source": product.get("source", "Unknown"),
         "currency": product.get("currency", "USD")
         # Note: URL is intentionally excluded to enforce payment flow
     }
 
     # Preserve the real product URL for the later payment confirmation step
-    if product.get("url"):
-        purchase_token = hashlib.sha256(
-            (product["url"] + product["name"] + str(time.time())).encode()
-        ).hexdigest()
-        pending_purchase_links[purchase_token] = {
-            "url": product["url"],
-            "product": product,
-            "created_at": time.time(),
-            "expires_at": time.time() + 60 * 60  # expire protected link after 1 hour
-        }
-        save_pending_purchase_links()
-        product_preview["purchase_token"] = purchase_token
+    purchase_token = hashlib.sha256(
+        ((product.get("url") or product.get("name", "")) + str(product.get("price", 0)) + str(time.time())).encode()
+    ).hexdigest()
+    pending_purchase_links[purchase_token] = {
+        "url": product.get("url"),
+        "product": product,
+        "created_at": time.time(),
+        "expires_at": time.time() + 60 * 60  # expire protected link after 1 hour
+    }
+    save_pending_purchase_links()
+    product_preview["purchase_token"] = purchase_token
 
     # Enhanced response with search metadata
     payment_info = {
         "status": "payment_required",
         "product": product_preview,  # Preview without URL
         "amount": product["price"],
-        "currency": "USDT",
+        "currency": PAYMENT_TOKEN_SYMBOL,
         "source": decision.get("source", "local_catalog"),
         "x402": True,
-        "message": "Pay commission to access direct purchase link and complete transaction on Kite"
+        "message": f"Pay commission in {PAYMENT_TOKEN_SYMBOL} to access direct purchase link and complete transaction on Kite"
     }
 
     # Include search results if from online search (also without URLs)
@@ -307,139 +389,156 @@ async def redeem_product_link(product_token: str):
 @app.post("/confirm-payment")
 async def confirm_payment(request: dict, user=Depends(get_current_user)):
     """
-    Process confirmed payment and settle on Kite chain
-    CRITICAL: Verifies wallet has BOTH USDT and KITE before ANY settlement
+    Process confirmed payment using Kite Agent Passport.
+    Executes payment through Passport agent execution workflow.
     """
     product = request.get("product")
     product_token = request.get("product_token")
     wallet_address = request.get("wallet_address")
     signature = request.get("signature")
 
-    if not product or not wallet_address or not signature:
-        raise HTTPException(status_code=400, detail="product, wallet_address, signature required")
-
-    # ============================================================
-    # CRITICAL VALIDATION: Check wallet has BOTH tokens BEFORE payment
-    # ============================================================
-    print(f"\n{'='*80}")
-    print(f"🔒 CRITICAL PRE-PAYMENT VALIDATION")
-    print(f"{'='*80}")
-    print(f"Wallet: {wallet_address}")
-    
-    wallet_ready = payment_processor.check_wallet_ready_for_payment(wallet_address)
-    print(f"Wallet Status: {wallet_ready}")
-    
-    if not wallet_ready.get("ready", False):
-        print(f"\n❌ PAYMENT BLOCKED: Wallet not ready")
-        print(f"USDT: {wallet_ready.get('usdt', {}).get('message', 'N/A')}")
-        print(f"KITE: {wallet_ready.get('kite', {}).get('message', 'N/A')}")
-        print(f"{'='*80}\n")
-        
-        raise HTTPException(
-            status_code=402,
-            detail="Insufficient Fund"
-        )
-    
-    print(f"✅ PAYMENT VALIDATION PASSED")
-    print(f"{'='*80}\n")
-
-    # Remove any client-supplied URL or token values; real URL will be attached only after successful payment
-    product.pop("url", None)
-    product.pop("purchase_token", None)
+    if not product or not wallet_address:
+        raise HTTPException(status_code=400, detail="product and wallet_address required")
 
     # Validate and sanitize product name
     product_name = product.get("name", "").strip()
     if not product_name:
         raise HTTPException(status_code=400, detail="Product name is required")
-    
+
     # Ensure product name is not too long (limit to 200 chars)
     if len(product_name) > 200:
         print(f"DEBUG: Product name too long ({len(product_name)} chars), truncating")
         product_name = product_name[:200] + "..."
-    
+
     # Use Valora treasury as the recipient for all payments
     recipient_address = VALORA_TREASURY_ADDRESS
     if not recipient_address:
         raise HTTPException(status_code=500, detail="Treasury address not configured")
     print(f"💰 Valora Treasury Address: {recipient_address}")
-    
-    print(f"DEBUG: Using recipient_address: {recipient_address}")
-    
-    # Validate recipient address
-    if not Web3.is_address(recipient_address):
-        raise HTTPException(status_code=400, detail="Invalid recipient address")
-    
-    # Convert amount to USDT (minimal testnet charge)
+
+    # Convert amount to stablecoin charge (service charge)
     amount_usd = float(product.get("price", 0))
-    charge_usdt = MIN_USDT_CHARGE  # Fixed testnet charge
-    
+    charge_stablecoin = MIN_STABLECOIN_CHARGE  # Fixed service charge
+
     print(f"DEBUG: Product price: ${amount_usd}")
-    print(f"DEBUG: USDT charge: {charge_usdt}")
-    
-    # Prepare USDT transfer transaction
-    try:
-        tx_data = payment_processor.prepare_usdt_transfer(
-            wallet_address,
-            recipient_address,
-            charge_usdt
-        )
-        
-        if not tx_data.get("success", False):
-            raise HTTPException(status_code=400, detail=f"Failed to prepare transaction: {tx_data.get('errors', 'Unknown error')}")
-        
-        tx_payload = tx_data["tx_json"]
-        print(f"DEBUG: Prepared unsigned transaction payload")
-        
-    except Exception as e:
-        print(f"ERROR: Failed to prepare USDT transfer: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Transaction preparation failed: {str(e)}")
-    
-    # Verify signature
+    print(f"DEBUG: {PAYMENT_TOKEN_SYMBOL} charge: {charge_stablecoin}")
+
+    # Verify signature if provided
     payment_payload = {
-        'currency': product.get('currency', 'USDT'),
+        'currency': PAYMENT_TOKEN_SYMBOL,
         'price': product.get('price'),
         'product_name': product_name
     }
     message = f"Autobuy payment confirmation {json.dumps(payment_payload, sort_keys=True, separators=(',', ':'))}"
-    
-    try:
-        recovered_address = payment_processor.verify_signature(message, signature)
-        if recovered_address.lower() != wallet_address.lower():
-            raise HTTPException(status_code=401, detail="Invalid signature")
-        print(f"✅ Signature verified for address: {recovered_address}")
-    except Exception as e:
-        print(f"ERROR: Signature verification failed: {str(e)}")
-        raise HTTPException(status_code=401, detail=f"Signature verification failed: {str(e)}")
-    
-    # Return unsigned transaction payload for wallet signing and submission
-    print(f"DEBUG: Prepared transaction payload ready for wallet signing")
 
-    if product_token and product_token in pending_purchase_links:
-        product_url = f"{APP_BASE_URL}/redeem/{product_token}"
+    if signature:
+        try:
+            recovered_address = payment_processor.verify_signature(message, signature)
+            if recovered_address.lower() != wallet_address.lower():
+                raise HTTPException(status_code=401, detail="Invalid signature")
+            print(f"✅ Signature verified for address: {recovered_address}")
+        except Exception as e:
+            print(f"ERROR: Signature verification failed: {str(e)}")
+            raise HTTPException(status_code=401, detail=f"Signature verification failed: {str(e)}")
     else:
-        product_url = None
-        if product_token:
+        print("⚠️ No signature provided. Proceeding with Passport agent execution.")
+
+    # Get the actual product URL (real retailer link) or fallback to redeem route
+    product_url = None
+    if product_token:
+        link_entry = pending_purchase_links.get(product_token)
+        if link_entry:
+            product_url = link_entry.get("url")
+            if not product_url:
+                print(f"WARNING: No URL stored for product_token {product_token}")
+        else:
             print(f"WARNING: product_token {product_token} not found in pending_purchase_links")
 
+        if not product_url:
+            product_url = f"{APP_BASE_URL}/redeem/{product_token}"
+
+    # Initialize Kite Passport
+    try:
+        passport = get_passport(base_url=KITE_PASSPORT_BASE_URL)
+        print("✅ Kite Passport initialized")
+    except RuntimeError as e:
+        error_msg = str(e)
+        if "kpass CLI is not installed" in error_msg or "not found in PATH" in error_msg:
+            print(f"ERROR: kpass CLI not found. Please install: curl -fsSL https://agentpassport.ai/install.sh | bash")
+            raise HTTPException(
+                status_code=503,
+                detail="Kite Passport CLI (kpass) is not installed. Please install it first: curl -fsSL https://agentpassport.ai/install.sh | bash"
+            )
+        print(f"ERROR: Failed to initialize Kite Passport: {error_msg}")
+        raise HTTPException(status_code=500, detail=f"Passport initialization failed: {error_msg}")
+    except Exception as e:
+        error_msg = str(e)
+        print(f"ERROR: Failed to initialize Kite Passport: {error_msg}")
+        raise HTTPException(status_code=500, detail=f"Passport service unavailable: {error_msg}")
+
+    # Execute payment through Passport via agent-based execution.
+    # The session-based Passport workflow is deprecated.
+    session_id = None
+
+    try:
+        # Execute payment through Passport using the Passport wallet CLI.
+        # Direct transfer is performed via kpass wallet send instead of the deprecated agent:execute flow.
+        payment_result = passport.execute_agent_request(
+            service_query=f"Transfer {charge_stablecoin} {PAYMENT_TOKEN_SYMBOL} to {recipient_address}",
+            payment_amount=charge_stablecoin,
+            payment_asset=PAYMENT_TOKEN_SYMBOL,
+            recipient_address=recipient_address,
+            user_address=wallet_address
+        )
+
+        if payment_result.get("status") != "success":
+            raise Exception(
+                f"Payment not completed: {payment_result.get('message')} (status={payment_result.get('status')})"
+            )
+
+        print(f"✅ Payment executed via Passport agent execution: {payment_result.get('tx_hash', 'unknown')}")
+
+        # Record settlement in Kite settlement system
+        settlement = settle_payment_on_kite(
+            task_id=payment_result.get("tx_hash", f"passport_tx_{int(time.time())}"),
+            user_address=wallet_address,
+            payment_amount_usdc=charge_stablecoin,
+            vendor_address=recipient_address
+        )
+
+        print(f"✅ Settlement recorded: {settlement}")
+
+    except Exception as e:
+        print(f"ERROR: Payment execution failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Payment execution failed: {str(e)}")
+
     return {
-        "status": "pending_wallet_submission",
-        "message": "Signature verified. Submit this transaction from the user's wallet to complete payment.",
-        "payment_status": "wallet_submission_required",
-        "product_url": product_url,
-        "payment_tx": tx_payload,
-        "details": tx_data.get("details", {}),
-        "recipient": recipient_address,
-        "amount_usdt": charge_usdt,
-        "product": {
-            "name": product_name,
-            "price": amount_usd,
-            "url": product_url,
+        "status": "payment_completed",
+            "message": "Payment completed successfully through Kite Agent Passport execution with scoped controls.",
+            "payment_status": "completed",
+            "product_token": product_token,
+            "product_url": product_url,
+            "product_source": product.get("store") or product.get("source"),
+            "payment_tx": payment_result,
+            "payment_instructions": "Payment processed through Kite Agent Passport execution with scoped controls.",
+            "session_id": None,  # No session-based API
+            "recipient": recipient_address,
+            "amount_stablecoin": charge_stablecoin,
+            "product": {
+                "name": product_name,
+                "price": amount_usd,
+                "url": product_url,
+                "source": product.get("source"),
+                "store": product.get("store")
+            },
+            "passport_details": {
+                "agent_execution": True,
+                "scoped_controls": payment_result.get("scoped_controls"),
+                "budget_used": charge_stablecoin,
+                "asset": PAYMENT_TOKEN_SYMBOL,
+                "executed_via_passport_agent": True
+            }
         }
-    }
-
-
-@app.post("/subscribe")
-async def subscribe(request: dict, user=Depends(get_current_user)):
     """Create subscription"""
     decision = decide_purchase(request)
     if decision["status"] != "approved":
@@ -463,7 +562,7 @@ async def subscribe(request: dict, user=Depends(get_current_user)):
         "subscription": sub,
         "product": product,
         "amount": product["price"],
-        "currency": "USDT",
+        "currency": PAYMENT_TOKEN_SYMBOL,
         "frequency_days": frequency
     }
     return JSONResponse(status_code=402, content=payment_info)
@@ -472,7 +571,6 @@ async def subscribe(request: dict, user=Depends(get_current_user)):
 # ============ BLOCKCHAIN WALLET ENDPOINTS ============
 
 from .blockchain_requirements import wallet_service
-from .blockchain_payment import payment_processor
 
 @app.post("/wallet/check-requirements")
 async def check_wallet_requirements(request: dict, user=Depends(get_current_user)):
@@ -480,7 +578,7 @@ async def check_wallet_requirements(request: dict, user=Depends(get_current_user
     Check if user's wallet has:
     1. KITE AI network configured
     2. Sufficient KITE for gas fees
-    3. Sufficient USDT for purchases
+    3. Sufficient stablecoin for purchases
     
     Returns setup instructions if needed
     """
@@ -500,18 +598,18 @@ async def check_wallet_requirements(request: dict, user=Depends(get_current_user
 
 @app.get("/wallet/balances/{wallet_address}")
 async def get_wallet_balances(wallet_address: str, user=Depends(get_current_user)):
-    """Get real-time KITE and USDT balances from blockchain"""
+    """Get real-time KITE and stablecoin balances from blockchain"""
     kite = wallet_service.get_kite_balance(wallet_address)
-    usdc = wallet_service.get_usdt_balance(wallet_address)
+    stablecoin = wallet_service.get_stablecoin_balance(wallet_address)
     
     return {
         "wallet": wallet_address,
         "kite": kite,
-        "usdc": usdc,
+        "stablecoin": stablecoin,
         "network": {
-            "name": "KITE AI Testnet",
+            "name": "KITE AI Mainnet",
             "chainId": KITE_CHAIN_ID,
-            "explorer": "https://testnet.kitescan.ai/",
+            "explorer": "https://kitescan.ai/",
         }
     }
 
@@ -519,7 +617,7 @@ async def get_wallet_balances(wallet_address: str, user=Depends(get_current_user
 @app.get("/wallet/ready-for-payment/{wallet_address}")
 async def check_wallet_ready_for_payment(wallet_address: str, user=Depends(get_current_user)):
     """
-    Check if wallet has BOTH KITE and USDT tokens for payment
+    Check if wallet has BOTH KITE and stablecoin tokens for payment
     Returns ready status and simple message
     """
     wallet_ready = payment_processor.check_wallet_ready_for_payment(wallet_address)
@@ -534,10 +632,10 @@ async def check_wallet_ready_for_payment(wallet_address: str, user=Depends(get_c
 
 @app.get("/wallet/network-config")
 async def get_network_config():
-    """Get KITE AI network configuration for MetaMask"""
+    """Get KITE AI network configuration for wallet setup"""
     return {
         "network": wallet_service.check_wallet_requirements("0x0")["network"],
-        "usdt": wallet_service.check_wallet_requirements("0x0")["usdt"],
+        "stablecoin": wallet_service.check_wallet_requirements("0x0")["stablecoin"],
     }
 
 
@@ -550,7 +648,7 @@ async def get_faucet_links():
 @app.post("/payment/prepare")
 async def prepare_payment(request: dict, user=Depends(get_current_user)):
     """
-    Prepare USDT transfer transaction
+    Prepare stablecoin transfer transaction
     Frontend signs and sends back the transaction
     """
     from_address = request.get("from_address")
@@ -566,7 +664,7 @@ async def prepare_payment(request: dict, user=Depends(get_current_user)):
         return {"success": False, "errors": validation["errors"]}
 
     # Prepare transaction
-    tx_prep = payment_processor.prepare_usdt_transfer(from_address, to_address, amount_usd)
+    tx_prep = payment_processor.prepare_stablecoin_transfer(from_address, to_address, amount_usd)
     
     if tx_prep["success"]:
         # Add gas estimation
@@ -580,13 +678,13 @@ async def prepare_payment(request: dict, user=Depends(get_current_user)):
 async def submit_payment(request: dict, user=Depends(get_current_user)):
     """
     Submit signed transaction to blockchain
-    Triggered after user signs in MetaMask
+    Triggered after the Kite AA wallet or bundler signs the transaction
     """
     signed_tx = request.get("signed_tx")
     if not signed_tx:
         raise HTTPException(status_code=400, detail="signed_tx required")
 
-    result = payment_processor.send_usdt_transaction(signed_tx)
+    result = payment_processor.send_stablecoin_transaction(signed_tx)
     
     return result
 

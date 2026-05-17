@@ -13,7 +13,7 @@ load_dotenv()
 # KITE AI Testnet configuration
 RPC_URL = os.getenv("KITE_RPC_URL", "https://rpc-testnet.gokite.ai/")
 CHAIN_ID = int(os.getenv("KITE_CHAIN_ID", "2368"))
-USDT_ADDRESS = os.getenv("USDT_ADDRESS", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
+USDC_ADDRESS = os.getenv("USDC_ADDRESS", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
 
 # Read contract source
 with open("../contracts/AutoBuy.sol", "r") as f:
@@ -35,7 +35,7 @@ def deploy_contract():
 
     # Build transaction
     contract = w3.eth.contract(abi=contract_interface['abi'], bytecode=contract_interface['bin'])
-    tx = contract.constructor(USDT_ADDRESS).build_transaction({
+    tx = contract.constructor(USDC_ADDRESS).build_transaction({
         "from": account.address,
         "nonce": w3.eth.get_transaction_count(account.address),
         "gas": 2000000,

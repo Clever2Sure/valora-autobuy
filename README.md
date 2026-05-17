@@ -1,249 +1,154 @@
 # 🤖 Valora AutoBuy Agent
 
-A production-ready AI-driven e-commerce platform that discovers products, enforces payment for value delivery, and settles transactions on **Kite AI blockchain**.
+A full-stack proof-of-concept that combines a React frontend with a FastAPI backend to discover products, require payment before revealing merchant links, and settle the resulting service fee through Kite Agent Passport.
 
-## 🎯 The Innovation: Agentic Commerce
+## What this project actually does
 
-**Problem**: AI agents discover valuable products but users get direct purchase links without paying the AI for its work, creating unsustainable economics.
+- The frontend is a React app that authenticates users, performs product search requests, and submits payment confirmations.
+- The backend is a FastAPI service that evaluates purchase requests, returns a payment-required preview, and executes payment through Kite Passport.
+- Product URLs are intentionally withheld from search responses until payment is confirmed.
+- Payments are executed using Kite Agent Passport via the `kpass` CLI and an agent-based transfer request.
+- The backend stores pending purchase tokens in `backend/pending_purchase_links.json` and redirects redeemed tokens to the real product URL.
 
-**Solution**: Agentic Commerce where AI agents get compensated for their work through payment-enforced product discovery.
+## Key implementation details
 
-### Key Innovation: Payment Enforcement
-- AI discovers products across multiple platforms (Amazon, Google Shopping)
-- Shows product previews WITHOUT direct purchase URLs
-- Users pay commission in USDC to unlock full access
-- Blockchain-verified settlement ensures AI gets paid
+- `backend/main.py` exposes the real API used by the app:
+  - `POST /register`
+  - `POST /login`
+  - `GET /me`
+  - `POST /buy`
+  - `POST /confirm-payment`
+  - `GET /kite/health`
+  - `GET /kite/settlements`
+  - `POST /passport/execute`
 
----
+- The `/buy` endpoint returns a `402` response when payment is required, with a product preview that omits the direct merchant URL.
+- The frontend collects a Kite AA wallet address or owner address, derives an AA address via `frontend/src/kiteAA.js`, and sends it to `/confirm-payment`.
+- The backend uses `kite_passport.py` and the `kpass` CLI to execute the payment as a Passport agent transfer.
 
-## 🚀 Features
-
-### 🤖 AI Product Discovery
-- **Multi-Platform Search** - Scrapes Amazon, Google Shopping, and local catalog
-- **Smart Filtering** - Price ranges, ratings, ad detection, budget constraints
-- **Real-Time Results** - Live web scraping with BeautifulSoup
-- **Quality Assurance** - Filters sponsored content and validates products
-
-### 💰 Payment Enforcement System
-- **URL Secrecy** - Direct links hidden until payment confirmed
-- **USDC Payments** - x402 protocol integration for crypto payments
-- **Wallet Verification** - MetaMask signature validation
-- **Server-Side Security** - URLs never exposed to frontend until paid
-
-### ⛓️ Blockchain Settlement (Kite AI)
-- **Transparent Transactions** - All payments recorded on-chain
-- **Attestation Proofs** - Cryptographic verification of service delivery
-- **Trustless Settlement** - No intermediaries, direct AI-to-user economics
-- **Audit Trail** - Complete transaction history on blockchain
-
-### 🎨 Modern Web Interface
-- **React Frontend** - Clean, responsive product search interface
-- **MetaMask Integration** - Seamless Web3 wallet connection
-- **Real-Time Updates** - Live search results and payment status
-- **Transaction Dashboard** - View all Kite blockchain settlements
-
----
-
-## 📋 Tech Stack
+## Actual technology stack
 
 | Component | Technology |
-|-----------|-----------|
-| **Backend** | FastAPI + Python 3.10 |
-| **Frontend** | React 18 + Axios |
-| **AI Agents** | Python + BeautifulSoup |
-| **Web3** | ethers.js + MetaMask |
-| **Blockchain** | Kite AI + USDC/x402 |
-| **Database** | In-memory (production-ready for PostgreSQL) |
-| **Deployment** | Docker + Vercel/Railway |
+|-----------|------------|
+| Backend | Python 3.10+, FastAPI, Web3.py |
+| Frontend | React 18, Axios, Ethers 6, gokite-aa-sdk |
+| Wallet integration | Kite Agent Passport (`kpass`) |
+| Payment flow | `POST /buy` → `402 payment_required` → `POST /confirm-payment` |
+| Storage | JSON-backed pending purchase links |
 
----
+## What this project does not currently do
 
-## 🏗️ Architecture
+- It does not use MetaMask or browser-based `personal_sign` for the payment confirmation flow.
+- It does not expose raw product URLs before payment.
+- It does not currently use a production database; pending links are stored in a JSON file.
+- It does not assume full multi-chain settlement; it is implemented around the Kite Passport / Kite AA flow.
 
-```
-User Request → React UI → FastAPI Backend → AI Agent
-                                      ↓
-                            Web Scraping (Amazon/Google)
-                                      ↓
-                            Product Results (URLs Hidden)
-                                      ↓
-                            402 Payment Required Response
-                                      ↓
-User Pays USDC → Wallet Signature → Confirm Payment
-                                      ↓
-Blockchain Settlement → Unlock URLs → Complete Transaction
-```
+## Repo structure
 
----
+- `backend/` — FastAPI backend and purchase/payment logic
+- `frontend/` — React app UI
+- `frontend/src/App.jsx` — app screens, login, search, wallet address entry, payment confirmation logic
+- `frontend/src/kiteAA.js` — Kite AA address derivation using `gokite-aa-sdk`
+- `backend/pending_purchase_links.json` — stored protected purchase links
+- `backend/kite_passport.py` — Kite Passport integration wrapper
 
-## 🚀 Quick Start
+## Setup
 
-### Prerequisites
+### Backend prerequisites
 - Python 3.10+
-- Node.js 16+
-- MetaMask wallet
-- USDC on Ethereum testnet
+- `backend/requirements.txt` dependencies
+- `kpass` CLI installed and available on PATH
+- `VALORA_TREASURY_ADDRESS` set to a valid Kite wallet address
+- `KITE_PASSPORT_BASE_URL` set if you want a non-default Passport endpoint
 
-### Backend Setup
-```bash
-cd backend
-pip install -r requirements.txt
-python -m uvicorn main:app --host 0.0.0.0 --port 8001
-```
-
-### Frontend Setup
-```bash
-cd frontend
-npm install
-npm start
-```
-
-### Run Tests
-```bash
-python test_amazon_search.py
-```
-
----
-
-## 🎯 Market Opportunity
-
-- **E-commerce Market**: $5.8T in 2023 → $8.1T by 2027
-- **AI Agent Market**: $1.3B in 2023 → $126B by 2030
-- **Agentic Commerce**: $100B+ untapped intersection
-- **Competitive Advantage**: First mover in payment-enforced AI commerce
-
----
-
-## 🔒 Security & Trust
-
-- **Payment Enforcement**: Server-side URL secrecy prevents bypass
-- **Blockchain Verification**: All transactions immutably recorded
-- **Wallet Security**: Cryptographic signature validation
-- **No Free Riding**: Users must pay to access monetizable value
-
----
-
-## 📈 Roadmap
-
-### Phase 1 (Current): Product Discovery ✅
-- Multi-platform search with payment enforcement
-- USDC payments and Kite settlement
-- Full-stack Web3 integration
-
-### Phase 2 (Next): Content Commerce
-- AI-generated product reviews and comparisons
-- Content creation agents with payment enforcement
-
-### Phase 3 (Future): Full Agentic Commerce
-- Logistics optimization agents
-- Customer service automation
-- Cross-chain multi-token support
-
----
-
-## 🤝 Contributing
-
-Built by **Kleva-Dev** - Product-focused developer specializing in Web3 commerce infrastructure.
-
-- 🐦 **Twitter**: [@Kleva-Dev](https://twitter.com/Kleva-Dev)
-- 💼 **Focus**: AI economics, payment enforcement, blockchain commerce
-
----
-
-## 📄 License
-
-MIT License - Free for commercial and non-commercial use.
-
----
-
-*"Agentic Commerce isn't just a product - it's the future of AI economics"* 🚀
-| **Frontend** | React + Axios |
-| **Blockchain** | Solidity + Web3.py |
-| **AI/LLM** | OpenAI API (GPT-3.5-turbo) |
-| **Chain** | Kite AI Testnet |
-| **Deployment** | Docker + Vercel/Railway |
-
----
-
-## 🔧 Setup & Installation
-
-### Prerequisites
-- Python 3.11+
-- Node.js 18+
-- Docker (for containerized deployment)
-- OpenAI API key
-- Kite faucet tokens (from Discord)
-
-### Backend Setup
+### Backend install and run
 
 ```bash
 cd backend
 pip install -r requirements.txt
-
-# Create .env file
-OPENAI_API_KEY=sk-...
-KITE_RPC_URL=https://rpc.testnet.kiteai.io
-USDC_ADDRESS=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-
-# Start server
-uvicorn main:app --reload --port 8000
 ```
 
-Backend runs on `http://localhost:8000`
+Create either root `.env` or `backend/.env` (or both). The backend loads both files and uses `backend/.env` to override root values.
 
-### Frontend Setup
+Required values:
+
+```env
+VALORA_TREASURY_ADDRESS=0xYourKiteTreasuryAddress
+KITE_PASSPORT_BASE_URL=https://passport.dev.gokite.ai
+APP_BASE_URL=http://localhost:8001
+```
+
+Start the backend:
+
+```bash
+cd backend
+uvicorn main:app --reload --host 0.0.0.0 --port 8001
+```
+
+### Frontend install and run
 
 ```bash
 cd frontend
 npm install
+```
 
-# Create .env file
-REACT_APP_API_URL=http://localhost:8000
+Create `frontend/.env` or use environment variables:
 
+```env
+REACT_APP_API_URL=http://localhost:8001
+REACT_APP_KITE_AA_NETWORK=kite_mainnet
+REACT_APP_KITE_AA_RPC_URL=https://rpc.gokite.ai/
+REACT_APP_KITE_AA_BUNDLER_RPC=https://bundler-service.staging.gokite.ai/rpc/
+```
+
+Start the frontend:
+
+```bash
 npm start
 ```
 
-Frontend runs on `http://localhost:3000`
+Open `http://localhost:3000`.
 
----
+## Frontend behavior
 
-## 🧪 Testing
+- Users register and log in with the app.
+- The app prompts for a Kite AA smart wallet address or owner address.
+- Product search requests are sent to `/buy`.
+- If the purchase requires payment, the response includes `status: payment_required` and `x402: true`.
+- The user confirms payment and the frontend calls `/confirm-payment` with the chosen wallet address.
+- The backend then executes the payment through Kite Passport.
 
-### Run Full End-to-End Test Suite
+## Environment variables used by the repo
 
-```bash
-cd backend
-python test_e2e.py
-```
+### Backend
+- `VALORA_TREASURY_ADDRESS`
+- `KITE_PASSPORT_BASE_URL`
+- `APP_BASE_URL`
 
-Tests:
-- ✓ User registration & authentication
-- ✓ Content generation via OpenAI
-- ✓ USDC payment calculation
-- ✓ Kite attestation recording
-- ✓ Task history & attestation retrieval
-- ✓ Access control & user isolation
+### Frontend
+- `REACT_APP_API_URL`
+- `REACT_APP_KITE_AA_NETWORK`
+- `REACT_APP_KITE_AA_RPC_URL`
+- `REACT_APP_KITE_AA_BUNDLER_RPC`
+- `REACT_APP_KITE_AA_EOA_PRIVATE_KEY` (used by `frontend/src/kiteAA.js` for advanced direct payment SDK calls)
 
----
+## Notes
 
-## 📡 API Endpoints
+- This repository is a working prototype, not a polished production deployment.
+- The payment confirmation flow is Passport agent-based, not browser-wallet-based.
+- The product search flow intentionally hides merchant URLs until payment is confirmed.
 
-### Auth
+## License
+
+MIT License.
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/register` | Register new user |
-| POST | `/login` | Authenticate user |
-| GET | `/me` | Get current user |
-
-### Content Generation
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/generate` | Generate content via AI |
-| POST | `/confirm-generation` | Confirm & settle on Kite |
+| POST | `/buy` | Request product search and purchase recommendation |
+| GET | `/tasks` | List user's purchase tasks |
 | GET | `/task/{id}` | Get task details |
-| GET | `/tasks` | List user's tasks |
 
-### Kite Chain
+### Kite Settlement
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/kite/health` | Check Kite connectivity |
@@ -253,38 +158,15 @@ Tests:
 
 ```bash
 # Login
-curl -X POST http://localhost:8000/login \
+curl -X POST http://localhost:8001/login \
   -H "Content-Type: application/json" \
   -d '{"username":"demo","password":"demo123"}'
-# Response: {"status":"authenticated","token":"..."}
 
-# Generate Content
-curl -X POST http://localhost:8000/generate \
+# Purchase Discovery Request
+curl -X POST http://localhost:8001/buy \
   -H "Authorization: Bearer <TOKEN>" \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"Write a blog post about AI agents"}'
-# Response: {
-#   "task_id": "task_...",
-#   "generated_content": "...",
-#   "output_hash": "abc123...",
-#   "tokens_used": 145,
-#   "payment_amount_usdc": 0.22
-# }
-
-# Confirm & Settle on Kite
-curl -X POST http://localhost:8000/confirm-generation \
-  -H "Authorization: Bearer <TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task_id":"task_...",
-    "payment_amount_usdc":0.22,
-    "vendor_address":"0x742d35Cc6634C0532925a3b844Bc89e7595f42A"
-  }'
-# Response: {
-#   "status": "completed",
-#   "attestation": {...},
-#   "settlement": {...}
-# }
+  -d '{"query":"wireless headphones under $150","budget_usd":150}'
 ```
 
 ---
@@ -300,9 +182,9 @@ docker build -t autobuy-agent .
 ### Run Locally
 
 ```bash
-docker run -p 8000:8000 \
-  -e OPENAI_API_KEY=sk-... \
-  -e KITE_RPC_URL=https://rpc.testnet.kiteai.io \
+docker run -p 8001:8001 \
+  -e KITE_RPC_URL=https://rpc.gokite.ai/ \
+  -e USDC_ADDRESS=0x7aB6f3ed87C42eF0aDb67Ed95090f8bF5240149e \
   autobuy-agent
 ```
 
@@ -351,14 +233,13 @@ docker push gcr.io/PROJECT/autobuy-agent
 
 **Required:**
 ```
-OPENAI_API_KEY=sk-...                           # OpenAI API key
-KITE_RPC_URL=https://rpc.testnet.kiteai.io     # Kite RPC endpoint
+KITE_RPC_URL=https://rpc.gokite.ai/     # Kite RPC endpoint (KiteAI Mainnet)
+USDC_ADDRESS=0x7aB6f3ed87C42eF0aDb67Ed95090f8bF5240149e
+JWT_SECRET=your-secret-key                     # For token signing
 ```
 
 **Optional:**
 ```
-USDC_ADDRESS=0x833589f...                      # USDC token address
-JWT_SECRET=your-secret-key                     # For token signing
 DATABASE_URL=postgresql://...                  # For persistence
 ```
 
@@ -366,13 +247,13 @@ DATABASE_URL=postgresql://...                  # For persistence
 
 ## 📊 Smart Contracts
 
-### ContentAgentAttestation.sol
+### Kite Attestation Contract
 
-Deployed on Kite Testnet. Records:
+Deployed on Kite AI Mainnet. Records:
 - **Task ID** - Unique identifier
 - **User Address** - Task creator
 - **Payment Amount** - USDC settled
-- **Output Hash** - SHA256 of generated content
+- **Output Hash** - SHA256 of the task record
 - **Agent Signature** - Proof of agent execution
 - **Timestamp** - Block timestamp
 
@@ -390,16 +271,16 @@ Deployed on Kite Testnet. Records:
 - Username & password input
 - Register or login buttons
 
-### Content Generation Screen
-- Prompt textarea
-- Generate button
-- Task history (previous generations)
+### Purchase Discovery Screen
+- Search query input
+- Budget and filter controls
+- Product recommendation cards
 - Kite attestation logs
 
 ### Confirmation Screen  
-- Generated content display
+- Purchase recommendation details
 - Output hash verification
-- Tokens used & pricing
+- Payment amount and Kite settlement
 - "Settle on Kite" button
 
 ---
@@ -424,7 +305,6 @@ MIT
 
 - **Issues** - GitHub Issues
 - **Discord** - Kite AI Discord community
-- **Docs** - See `/docs` folder
 
 ---
 
@@ -439,16 +319,8 @@ This project fully meets the **Kite AI Global Hackathon 2026** requirements:
 ✅ Functional UI with full user workflows  
 ✅ Publicly accessible demo available
 
-**View live at:** `https://your-app.vercel.app` (deploying...)
-
-**Backend API at:** `https://your-backend.railway.app` (deploying...)
-
 ---
 
 ## 📞 Questions?
 
 Contact us or join the Kite AI Discord for support!
-
----
-
-**Happy building! 🚀**

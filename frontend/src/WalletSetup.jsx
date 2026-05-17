@@ -14,7 +14,7 @@ const WalletSetup = ({ walletAddress, onReady, API_BASE, headers }) => {
     "Check Wallet",
     "Add Network",
     "Add USDC Token",
-    "Get Test Tokens",
+    "Fund Wallet",
     "Ready!"
   ];
 
@@ -62,17 +62,17 @@ const WalletSetup = ({ walletAddress, onReady, API_BASE, headers }) => {
       const netRes = await axios.get(`${API_BASE}/wallet/network-config`, { headers });
       const networkConfig = netRes.data.network.config;
 
-      await window.ethereum.request({
-        method: "wallet_addEthereumChain",
-        params: [networkConfig],
-      });
+      alert(`Configure Kite AI Mainnet in your wallet:\n` +
+        `RPC URL: ${networkConfig.rpcUrls[0]}\n` +
+        `Chain ID: ${parseInt(networkConfig.chainId, 16)}\n` +
+        `Native Currency: ${networkConfig.nativeCurrency.symbol}\n` +
+        `Explorer: ${networkConfig.blockExplorerUrls[0]}`
+      );
 
       setStep(2);
       setTimeout(checkRequirements, 1000);
     } catch (err) {
-      if (err.code !== 4001) { // User rejected
-        setError(`Failed to add network: ${err.message}`);
-      }
+      setError(`Failed to retrieve network configuration: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -84,25 +84,16 @@ const WalletSetup = ({ walletAddress, onReady, API_BASE, headers }) => {
       const netRes = await axios.get(`${API_BASE}/wallet/network-config`, { headers });
       const usdcConfig = netRes.data.usdc.config;
 
-      await window.ethereum.request({
-        method: "wallet_watchAsset",
-        params: {
-          type: "ERC20",
-          options: {
-            address: usdcConfig.address,
-            symbol: usdcConfig.symbol,
-            decimals: usdcConfig.decimals,
-            image: usdcConfig.image,
-          },
-        },
-      });
+      alert(`Add USDC token to your wallet with this contract address:\n` +
+        `Address: ${usdcConfig.address}\n` +
+        `Symbol: ${usdcConfig.symbol}\n` +
+        `Decimals: ${usdcConfig.decimals}`
+      );
 
       setStep(3);
       setTimeout(checkRequirements, 1000);
     } catch (err) {
-      if (err.code !== 4001) {
-        setError(`Failed to add USDC: ${err.message}`);
-      }
+      setError(`Failed to retrieve token configuration: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -176,47 +167,45 @@ const WalletSetup = ({ walletAddress, onReady, API_BASE, headers }) => {
           
           {issues.some(i => i.type === "insufficient_kite") && (
             <div className="issue-block kite-issue">
-              <h4>Need Test KITE for Gas Fees</h4>
-              <p>Use the KITE faucet to get test KITE:</p>
+              <h4>Need KITE for Gas Fees</h4>
+              <p>No public faucet on Kite AI Mainnet. Fund your wallet via exchange, bridge, or direct transfer.</p>
               <button
-                onClick={() => window.open("https://faucet.gokite.ai", "_blank")}
+                onClick={() => alert('No public faucet on KiteAI Mainnet. Fund via exchange, bridge, or transfer.')}
                 className="faucet-btn"
               >
-                🚰 KITE Faucet
+                🔗 Funding Guidance
               </button>
-              <p className="hint">Request enough KITE to cover transaction costs</p>
             </div>
           )}
 
           {issues.some(i => i.type === "insufficient_usdt") && (
             <div className="issue-block usdc-issue">
-              <h4>Need Test USDT for Purchases</h4>
-              <p>Use the KITE faucet to get USDT:</p>
+              <h4>Need USDC for Purchases</h4>
+              <p>No public faucet on Kite AI Mainnet. Fund your wallet with USDC via exchange, bridge, or direct transfer.</p>
               <button
-                onClick={() => window.open("https://faucet.gokite.ai", "_blank")}
+                onClick={() => alert('No public faucet on KiteAI Mainnet. Fund via exchange, bridge, or transfer.')}
                 className="faucet-btn"
               >
-                💎 KITE Faucet
+                🔗 Funding Guidance
               </button>
-              <p className="hint">Request USDT on the KITE testnet</p>
             </div>
           )}
 
           {step === 1 && (
             <div className="setup-action">
-              <h4>Step 1: Add KITE AI Testnet</h4>
+              <h4>Step 1: Add KITE AI Mainnet</h4>
               <button
                 onClick={addNetwork}
                 className="action-btn primary"
               >
-                ➕ Add Network to MetaMask
+                ➕ Get Kite AI network setup instructions
               </button>
             </div>
           )}
 
           {step === 2 && (
             <div className="setup-action">
-              <h4>Step 2: Add USDT Token to MetaMask</h4>
+              <h4>Step 2: Add USDT Token to your wallet</h4>
               <button
                 onClick={addUSDC}
                 className="action-btn primary"
@@ -228,9 +217,9 @@ const WalletSetup = ({ walletAddress, onReady, API_BASE, headers }) => {
 
           {step === 3 && (
             <div className="setup-action">
-              <h4>Step 3: Get Test Tokens</h4>
+              <h4>Step 3: Fund Wallet</h4>
               <p className="setup-instruction">
-                Get KITE and USDT test tokens using the faucet above, then refresh this page
+                Fund your wallet with KITE and USDC on Kite AI Mainnet, then refresh this page
               </p>
               <button
                 onClick={checkRequirements}
@@ -250,10 +239,10 @@ const WalletSetup = ({ walletAddress, onReady, API_BASE, headers }) => {
           <div className="success-message">
             <p>Your wallet is ready for autonomous commerce:</p>
             <ul>
-              <li>✓ KITE AI Testnet configured</li>
-              <li>✓ USDT token added</li>
+              <li>✓ KITE AI Mainnet configured</li>
+              <li>✓ USDC token added</li>
               <li>✓ Sufficient KITE for gas</li>
-              <li>✓ Sufficient USDT for purchases</li>
+              <li>✓ Sufficient USDC for purchases</li>
             </ul>
           </div>
           <button

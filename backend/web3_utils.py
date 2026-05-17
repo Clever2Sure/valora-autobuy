@@ -1,8 +1,17 @@
 import os
+from dotenv import load_dotenv
 from web3 import Web3
 
-RPC_URL = os.getenv("RPC_URL", "https://rpc-testnet.gokite.ai/")
-USDT_ADDRESS = Web3.to_checksum_address(os.getenv("USDT_ADDRESS", "0x833589fCD6eDb6e08f4c7C32D4f71b54bdA02913"))
+backend_dir = os.path.dirname(__file__)
+root_env = os.path.join(backend_dir, os.pardir, ".env")
+backend_env = os.path.join(backend_dir, ".env")
+load_dotenv(root_env)
+load_dotenv(backend_env, override=True)
+
+RPC_URL = os.getenv("RPC_URL", os.getenv("KITE_RPC_URL", "https://rpc.gokite.ai/"))
+STABLECOIN_ADDRESS = Web3.to_checksum_address(
+    os.getenv("STABLECOIN_ADDRESS", os.getenv("USDC_ADDRESS", "0x7aB6f3ed87C42eF0aDb67Ed95090f8bF5240149e"))
+)
 
 ERC20_ABI = [
     {
@@ -20,9 +29,9 @@ ERC20_ABI = [
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
 
-def send_usdc(private_key, to, amount):
+def send_stablecoin(private_key, to, amount):
     account = w3.eth.account.from_key(private_key)
-    contract = w3.eth.contract(address=USDT_ADDRESS, abi=ERC20_ABI)
+    contract = w3.eth.contract(address=STABLECOIN_ADDRESS, abi=ERC20_ABI)
 
     tx = contract.functions.transfer(
         Web3.to_checksum_address(to),

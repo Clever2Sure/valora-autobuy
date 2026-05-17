@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Utility script to fetch test USDT faucet links and check balances on the KITE AI Testnet
+Utility script to fetch test USDC faucet links and check balances on the KITE AI Testnet
 """
 
 import os
@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 RPC_URL = os.getenv("RPC_URL", "https://rpc-testnet.gokite.ai/")
-USDT_ADDRESS = os.getenv("USDT_ADDRESS", "0x833589fCD6eDb6e08f4c7C32D4f71b54bdA02913")
+USDC_ADDRESS = os.getenv("USDC_ADDRESS", "0x833589fCD6eDb6e08f4c7C32D4f71b54bdA02913")
 
 # USDC ERC20 ABI (minimal, just balance)
 ERC20_ABI = [
@@ -45,7 +45,7 @@ ERC20_ABI = [
 ]
 
 def check_balances(address):
-    """Check KITE and USDT balances for an address"""
+    """Check KITE and USDC balances for an address"""
     w3 = Web3(Web3.HTTPProvider(RPC_URL))
     
     if not w3.is_connected():
@@ -58,21 +58,21 @@ def check_balances(address):
     kite_balance = w3.eth.get_balance(address)
     kite_display = w3.from_wei(kite_balance, 'ether')
     
-    # Check USDT balance
-    contract = w3.eth.contract(address=Web3.to_checksum_address(USDT_ADDRESS), abi=ERC20_ABI)
+    # Check USDC balance
+    contract = w3.eth.contract(address=Web3.to_checksum_address(USDC_ADDRESS), abi=ERC20_ABI)
     try:
-        usdt_balance = contract.functions.balanceOf(address).call()
+        usdc_balance = contract.functions.balanceOf(address).call()
         decimals = contract.functions.decimals().call()
-        usdt_display = usdt_balance / (10 ** decimals)
+        usdc_display = usdc_balance / (10 ** decimals)
         
         print(f"✅ Connected to KITE AI Testnet")
         print(f"\n📊 Balances for {address}")
         print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print(f"KITE:  {kite_display:.4f} KITE")
-        print(f"USDT:  {usdt_display:.2f} USDT")
+        print(f"USDC:  {usdc_display:.2f} USDC")
         print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     except Exception as e:
-        print(f"⚠️  Could not fetch USDT balance: {e}")
+        print(f"⚠️  Could not fetch USDC balance: {e}")
         print(f"KITE Balance: {kite_display:.4f} KITE")
 
 def print_faucet_links():
@@ -81,9 +81,9 @@ def print_faucet_links():
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print("1. KITE Faucet (for gas):")
     print("   https://faucet.gokite.ai/")
-    print("\n2. KITE Faucet (for USDT):")
+    print("\n2. KITE Faucet (for USDC):")
     print("   https://faucet.gokite.ai/")
-    print("   - Use the KITE testnet option and request USDT")
+    print("   - Use the KITE testnet option and request USDC")
     print("\n3. Block Explorer:")
     print("   https://testnet.kitescan.ai/")
     print("\n4. Documentation:")

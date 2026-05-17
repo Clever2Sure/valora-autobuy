@@ -1,7 +1,11 @@
 import requests
 from bs4 import BeautifulSoup
 import re
-from typing import List, Dict, Optional
+import asyncio
+import concurrent.futures
+from typing import List, Dict, Optional, Tuple
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 def resolve_relative_url(href: str, base: str) -> str:
@@ -20,9 +24,9 @@ try:
 except ImportError:
     # For standalone testing
     PRODUCTS = [
-        {"name": "Gaming Laptop", "price": 1200, "rating": 4.5},
-        {"name": "Business Laptop", "price": 800, "rating": 4.2},
-        {"name": "Budget Laptop", "price": 400, "rating": 3.8},
+        {"name": "Gaming Laptop", "price": 1200, "rating": 4.5, "source": "Local Catalog"},
+        {"name": "Business Laptop", "price": 800, "rating": 4.2, "source": "Local Catalog"},
+        {"name": "Budget Laptop", "price": 400, "rating": 3.8, "source": "Local Catalog"},
     ]
 
 def search_amazon_products(query: str, min_price: float = 0, max_price: float = float('inf'), limit: int = 10) -> List[Dict]:
@@ -171,7 +175,7 @@ def search_amazon_products(query: str, min_price: float = 0, max_price: float = 
                     "price": price,
                     "rating": rating,
                     "url": product_url,
-                    "source": "amazon",
+                    "source": "Amazon",
                     "currency": "USD"
                 }
 
@@ -200,7 +204,7 @@ def search_google_shopping(query: str, min_price: float = 0, max_price: float = 
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
 
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=20)
         response.raise_for_status()
 
         soup = BeautifulSoup(response.content, 'html.parser')
@@ -244,6 +248,9 @@ def search_google_shopping(query: str, min_price: float = 0, max_price: float = 
                 if store_elem:
                     store = store_elem.get_text(strip=True)
 
+                if store == "Unknown":
+                    continue
+
                 # Extract rating if available
                 rating = 0.0
                 rating_elem = result.find('span', class_='Rsc7Yb')
@@ -268,7 +275,7 @@ def search_google_shopping(query: str, min_price: float = 0, max_price: float = 
                     "rating": rating,
                     "store": store,
                     "url": product_url,
-                    "source": "google_shopping",
+                    "source": "Google Shopping",
                     "currency": "USD"
                 }
 
@@ -296,7 +303,7 @@ def search_walmart_products(query: str, min_price: float = 0, max_price: float =
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
 
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=25)
         response.raise_for_status()
 
         soup = BeautifulSoup(response.content, 'html.parser')
@@ -347,7 +354,7 @@ def search_walmart_products(query: str, min_price: float = 0, max_price: float =
                     "rating": 0.0,  # Walmart doesn't show ratings on search page
                     "store": "Walmart",
                     "url": product_url,
-                    "source": "walmart",
+                    "source": "Walmart",
                     "currency": "USD"
                 }
 
@@ -375,7 +382,18 @@ def search_bestbuy_products(query: str, min_price: float = 0, max_price: float =
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
 
-        response = requests.get(url, headers=headers, timeout=10)
+        session = requests.Session()
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "OPTIONS"]
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+
+        response = session.get(url, headers=headers, timeout=20)
         response.raise_for_status()
 
         soup = BeautifulSoup(response.content, 'html.parser')
@@ -433,7 +451,7 @@ def search_bestbuy_products(query: str, min_price: float = 0, max_price: float =
                     "rating": rating,
                     "store": "Best Buy",
                     "url": product_url,
-                    "source": "bestbuy",
+                    "source": "Best Buy",
                     "currency": "USD"
                 }
 
@@ -449,9 +467,117 @@ def search_bestbuy_products(query: str, min_price: float = 0, max_price: float =
         return []
 
 
+def search_all_platforms_concurrent(query: str, min_price: float = 0, max_price: float = float('inf'), limit_per_platform: int = 3, timeout_seconds: int = 8) -> List[Dict]:
+    """
+    Search across multiple platforms CONCURRENTLY for faster results
+    Uses ThreadPoolExecutor to parallelize searches across platforms
+    """
+    all_products = []
+
+    print(f"Searching platforms concurrently for: '{query}' (${min_price}-${max_price}, timeout={timeout_seconds}s)")
+
+    # Define search tasks for each platform
+    search_tasks = [
+        ("Amazon", search_amazon_products, limit_per_platform),
+        ("Google Shopping", search_google_shopping, limit_per_platform),
+        ("Walmart", search_walmart_products, limit_per_platform),
+        ("Best Buy", search_bestbuy_products, limit_per_platform),
+    ]
+
+    # Use ThreadPoolExecutor for concurrent execution
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(search_tasks)) as executor:
+        # Submit all search tasks
+        future_to_platform = {
+            executor.submit(search_func, query, min_price, max_price, limit): (platform_name, search_func)
+            for platform_name, search_func, limit in search_tasks
+        }
+
+        # Collect results as they complete (progressive loading effect)
+        try:
+            for future in concurrent.futures.as_completed(future_to_platform, timeout=timeout_seconds):
+                platform_name, search_func = future_to_platform[future]
+                try:
+                    products = future.result()
+                    all_products.extend(products)
+                    print(f"  {platform_name}: {len(products)} products")
+                except Exception as e:
+                    print(f"  {platform_name}: Error - {str(e)[:30]}")
+        except concurrent.futures.TimeoutError:
+            print(f"  Concurrent search timeout after {timeout_seconds}s")
+
+    # Remove duplicates (same product from different sources)
+    unique_products = []
+    seen_names = set()
+
+    for product in all_products:
+        name_key = product['name'].lower()[:50]  # First 50 chars as key
+        if name_key not in seen_names:
+            unique_products.append(product)
+            seen_names.add(name_key)
+
+    # Sort by price (lowest first)
+    unique_products.sort(key=lambda x: x['price'])
+
+    print(f"Total unique products found: {len(unique_products)}")
+    return unique_products[:limit_per_platform * 2]  # Return top results
+
+
+def normalize_source(source: Optional[str]) -> str:
+    if not source:
+        return ""
+    return source.lower().replace('_', ' ').strip()
+
+
+def search_fast_platforms(query: str, min_price: float = 0, max_price: float = float('inf'), limit_per_platform: int = 2, timeout_seconds: int = 4) -> List[Dict]:
+    """
+    Fast search path - returns immediately on first success within a short timeout.
+    """
+    all_products = []
+    print(f"Fast search for: '{query}'")
+
+    search_tasks = [
+        ("Amazon", search_amazon_products, limit_per_platform),
+        ("Best Buy", search_bestbuy_products, limit_per_platform),
+    ]
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(search_tasks)) as executor:
+        future_to_platform = {
+            executor.submit(search_func, query, min_price, max_price, limit): platform_name
+            for platform_name, search_func, limit in search_tasks
+        }
+
+        try:
+            for future in concurrent.futures.as_completed(future_to_platform, timeout=timeout_seconds):
+                platform_name = future_to_platform[future]
+                try:
+                    products = future.result()
+                    if products:
+                        all_products.extend(products)
+                        print(f"Got {len(products)} from {platform_name} - returning immediately")
+                        break
+                except Exception as e:
+                    print(f"{platform_name} failed: {str(e)[:30]}")
+        except concurrent.futures.TimeoutError:
+            print(f"Timeout after {timeout_seconds}s")
+
+    if all_products:
+        # Remove duplicates and sort by price
+        unique = []
+        seen = set()
+        for p in all_products:
+            key = p['name'].lower()[:40]
+            if key not in seen:
+                unique.append(p)
+                seen.add(key)
+        unique.sort(key=lambda x: x['price'])
+        return unique[:limit_per_platform * 2]
+    
+    return []
+
+
 def search_all_platforms(query: str, min_price: float = 0, max_price: float = float('inf'), limit_per_platform: int = 5) -> List[Dict]:
     """
-    Search across multiple platforms and aggregate results
+    Search across multiple platforms and aggregate results (SEQUENTIAL - slower)
     """
     all_products = []
 
@@ -521,6 +647,7 @@ def parse_price_range(query: str, budget: float):
     if under_match:
         max_price = min(float(under_match.group(1)), budget)
         query = re.sub(r'(?:under|below)\s*\$?\d+', '', query).strip()
+        return max(min_price, 0), min(max_price, budget), query
 
     return min_price, max_price, query
 
@@ -568,11 +695,48 @@ def decide_purchase(request):
         "attempts": []
     }
 
-    # Try strict range first
-    results = search_all_platforms(clean_query, min_price, max_price, limit_per_platform=5)
-    # Enforce range, budget, and require a direct product URL for the paid link flow
-    results = [p for p in results if p.get("price") is not None and p.get("url") and min_price <= p["price"] <= max_price and p["price"] <= budget]
-    debug_info["attempts"].append({"range": f"{min_price}-{max_price}", "count": len(results)})
+    # ALWAYS return local matches first (fastest response)
+    local_matches = [
+        p for p in PRODUCTS
+        if clean_query in p["name"].lower() and min_price <= p["price"] <= max_price
+    ]
+    if local_matches:
+        best_local = min(local_matches, key=lambda x: x["price"])
+        best_local = {**best_local, "source": best_local.get("source", "local_catalog")}
+        local_preview = [
+            {**p, "source": p.get("source", "local_catalog")}
+            for p in local_matches[:5]
+        ]
+        return {
+            "status": "approved",
+            "product": best_local,
+            "source": "local_catalog",
+            "search_results": local_preview
+        }
+
+    # Only search web if no local match found (fast path to stable platforms)
+    results = search_fast_platforms(clean_query, min_price, max_price, limit_per_platform=2, timeout_seconds=4)
+    results = [
+        p for p in results
+        if p.get("price") is not None
+        and p.get("url")
+        and min_price <= p["price"] <= max_price
+        and p["price"] <= budget
+        and normalize_source(p.get("source") or p.get("store")) in {"amazon", "best buy", "bestbuy", "google shopping"}
+    ]
+    debug_info["attempts"].append({"range": f"{min_price}-{max_price}", "count": len(results), "phase": "fast"})
+
+    if not results:
+        fallback_results = search_all_platforms_concurrent(clean_query, min_price, max_price, limit_per_platform=2, timeout_seconds=8)
+        results = [
+            p for p in fallback_results
+            if p.get("price") is not None
+            and p.get("url")
+            and min_price <= p["price"] <= max_price
+            and p["price"] <= budget
+            and normalize_source(p.get("source") or p.get("store")) in {"amazon", "best buy", "bestbuy", "google shopping"}
+        ]
+        debug_info["attempts"].append({"range": f"{min_price}-{max_price}", "count": len(results), "phase": "fallback"})
 
     if results:
         best_product = min(results, key=lambda x: x["price"])
@@ -584,27 +748,7 @@ def decide_purchase(request):
             "search_debug": debug_info
         }
 
-    # Fallback to all under budget (strict-over-range guard)
-    if min_price > 0 or max_price < budget:
-        fallback_results = search_all_platforms(clean_query, 0, budget, limit_per_platform=5)
-        fallback_results = [p for p in fallback_results if p.get("price") is not None and p.get("url") and p["price"] <= budget]
-        # If explicit range was set, keep only items within that range as much as possible
-        if min_price > 0 or max_price < budget:
-            fallback_results = [p for p in fallback_results if min_price <= p["price"] <= max_price]
-
-        debug_info["attempts"].append({"range": f"0-{budget}", "count": len(fallback_results)})
-
-        if fallback_results:
-            best_product = min(fallback_results, key=lambda x: x["price"])
-            return {
-                "status": "partial",
-                "message": "No strict match in requested range; showing closest under budget.",
-                "product": best_product,
-                "source": "multi_platform_search_fallback",
-                "search_results": fallback_results[:5],
-                "search_debug": debug_info
-            }
-
+    # No results - return immediately (don't retry to avoid long wait times)
     return {
         "status": "no_match",
         "message": "No products found for query within budget",

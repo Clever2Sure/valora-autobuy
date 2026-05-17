@@ -1,11 +1,18 @@
 from datetime import datetime
 from typing import Dict
 import os
+from dotenv import load_dotenv
 
-# Kite Testnet Configuration
-KITE_RPC_URL = os.getenv("KITE_RPC_URL", "https://rpc-testnet.gokite.ai/")
-KITE_CHAIN_ID = os.getenv("KITE_CHAIN_ID", "2368")
-KITE_FAUCET = os.getenv("KITE_FAUCET", "https://faucet.gokite.ai")
+backend_dir = os.path.dirname(__file__)
+root_env = os.path.join(backend_dir, os.pardir, ".env")
+backend_env = os.path.join(backend_dir, ".env")
+load_dotenv(root_env)
+load_dotenv(backend_env, override=True)
+
+# Kite Mainnet Configuration
+KITE_RPC_URL = os.getenv("KITE_RPC_URL", "https://rpc.gokite.ai/")
+KITE_CHAIN_ID = os.getenv("KITE_CHAIN_ID", "2366")
+KITE_FAUCET = os.getenv("KITE_FAUCET", "")
 
 SETTLEMENT_EVENTS = []
 
