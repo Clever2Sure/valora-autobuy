@@ -3,7 +3,7 @@
   "outputDirectory": "frontend/build",
   "functions": {
     "api/index.py": {
-      "runtime": "python3.11",
+      "runtime": "@vercel/python@3.1.0",
       "includeFiles": "backend/**"
     }
   },
