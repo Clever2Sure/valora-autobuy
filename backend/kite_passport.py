@@ -26,7 +26,10 @@ class KitePassport:
         self.base_url = base_url or os.getenv("KITE_PASSPORT_BASE_URL") or "https://passport.dev.gokite.ai"
         self._load_config()
         self.kpass_path = self._find_kpass_executable()
-        print(f"Debug: resolved kpass path = {self.kpass_path}")
+        if self.kpass_path:
+            print(f"Debug: resolved kpass path = {self.kpass_path}")
+        else:
+            print("Debug: kpass CLI not found (expected in serverless/deployment environments)")
 
     def _load_config(self):
         """Load Passport configuration from .kite-passport directory."""
@@ -38,10 +41,17 @@ class KitePassport:
         print(f"Debug: exists = {os.path.exists(config_file)}")
 
         if not os.path.exists(config_file):
-            raise RuntimeError(
-                "Kite Passport not configured. Please run: "
-                "curl -fsSL https://agentpassport.ai/install.sh | bash"
-            )
+            # In deployment/serverless environments, config may not exist yet.
+            # Use JWT from environment variable if available, otherwise mark as unconfigured.
+            self.config = {}
+            self.jwt_token = os.getenv("KITE_PASSPORT_JWT")
+            if self.jwt_token:
+                print("Debug: Using KITE_PASSPORT_JWT from environment")
+                self.config["jwt"] = self.jwt_token
+            else:
+                print("Debug: Passport not configured (no .kite-passport/config.json and no KITE_PASSPORT_JWT env)")
+                self.jwt_token = None
+            return
 
         try:
             with open(config_file, 'r') as f:
@@ -52,8 +62,8 @@ class KitePassport:
         except Exception as e:
             raise RuntimeError(f"Failed to load Passport config: {str(e)}")
 
-    def _find_kpass_executable(self) -> str:
-        """Resolve the kpass executable path from the current environment."""
+    def _find_kpass_executable(self) -> Optional[str]:
+        """Resolve the kpass executable path from the current environment, or return None if not found."""
         import platform
         is_windows = platform.system() == "Windows"
 
@@ -127,13 +137,17 @@ class KitePassport:
             except Exception:
                 pass
 
-        raise RuntimeError(
-            "kpass CLI is not installed or not found in PATH. "
-            "Install Kite Passport CLI and ensure it is available as `kpass`, or set KITE_PASSPORT_CLI_PATH or `wsl:<distro>:<path>` for WSL installs."
-        )
+        # In deployment environments, kpass may not be available; return None instead of raising.
+        return None
 
     def _api_request(self, method: str, endpoint: str, data: Optional[Dict] = None) -> Dict:
         """Make authenticated API request to Passport service."""
+        if not self.jwt_token:
+            raise RuntimeError(
+                "Passport JWT not configured. Set KITE_PASSPORT_JWT environment variable or run: "
+                "curl -fsSL https://agentpassport.ai/install.sh | bash"
+            )
+        
         tried = []
         endpoints = [endpoint] + self._get_fallback_endpoints(endpoint)
 
@@ -205,6 +219,15 @@ class KitePassport:
         """
         if not args:
             return {"error": "No command specified"}
+        
+        # In deployment environments, kpass CLI may not be available.
+        # Check if kpass_path is set; if not, raise gracefully.
+        if self.kpass_path is None:
+            raise RuntimeError(
+                "kpass CLI is not installed or not found in PATH. "
+                "This is expected in serverless/deployment environments. "
+                "For local testing, install Kite Passport CLI: curl -fsSL https://agentpassport.ai/install.sh | bash"
+            )
 
         # Check if we're on Windows and kpass is in WSL
         import platform
