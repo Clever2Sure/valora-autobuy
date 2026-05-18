@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import subprocess
+import shlex
 from typing import Dict, Optional, List
 import logging
 from dotenv import load_dotenv
@@ -57,8 +58,11 @@ class KitePassport:
         is_windows = platform.system() == "Windows"
 
         env_path = os.getenv("KITE_PASSPORT_CLI_PATH")
-        if env_path and os.path.isfile(env_path) and os.access(env_path, os.X_OK):
-            return env_path
+        if env_path:
+            if env_path.startswith("wsl:"):
+                return env_path
+            if os.path.isfile(env_path) and os.access(env_path, os.X_OK):
+                return env_path
 
         for candidate_name in ("kpass", "kpass.exe"):
             candidate = shutil.which(candidate_name)
@@ -75,27 +79,57 @@ class KitePassport:
             if path and os.path.isfile(path) and os.access(path, os.X_OK):
                 return path
 
-        # On Windows, try WSL paths if running from WSL environment
         if is_windows:
-            # Check if we're actually running in WSL (when Python is called from WSL)
+            # Check whether WSL is available and kpass exists there.
             try:
-                with open('/proc/version', 'r') as f:
-                    if 'microsoft' in f.read().lower():
-                        # We're in WSL, check WSL paths
-                        wsl_paths = [
-                            "/home/paul/.local/bin/kpass",
-                            "/usr/local/bin/kpass",
-                            "/usr/bin/kpass"
-                        ]
-                        for wsl_path in wsl_paths:
-                            if os.path.isfile(wsl_path) and os.access(wsl_path, os.X_OK):
-                                return wsl_path
-            except:
+                result = subprocess.run(
+                    ["wsl", "bash", "-lc", "command -v kpass"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if result.returncode == 0:
+                    wsl_path = result.stdout.strip()
+                    if wsl_path:
+                        return f"wsl:{wsl_path}"
+            except Exception:
+                pass
+
+            # If the default WSL distro is not the one with kpass installed,
+            # try available Linux distros other than docker-desktop.
+            try:
+                distro_list = subprocess.run(
+                    ["wsl", "-l", "-q"],
+                    capture_output=True,
+                    text=False,
+                    timeout=10,
+                )
+                if distro_list.returncode == 0:
+                    raw_output = distro_list.stdout
+                    if b'\x00' in raw_output:
+                        raw_output = raw_output.decode('utf-16-le', errors='ignore')
+                    else:
+                        raw_output = raw_output.decode('utf-8', errors='ignore')
+                    for distro in raw_output.splitlines():
+                        distro = distro.strip()
+                        if not distro or distro.startswith("docker-desktop"):
+                            continue
+                        result = subprocess.run(
+                            ["wsl", "-d", distro, "bash", "-lc", "command -v kpass"],
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
+                        )
+                        if result.returncode == 0:
+                            wsl_path = result.stdout.strip()
+                            if wsl_path:
+                                return f"wsl:{distro}:{wsl_path}"
+            except Exception:
                 pass
 
         raise RuntimeError(
             "kpass CLI is not installed or not found in PATH. "
-            "Install Kite Passport CLI and ensure it is available as `kpass` or set KITE_PASSPORT_CLI_PATH."
+            "Install Kite Passport CLI and ensure it is available as `kpass`, or set KITE_PASSPORT_CLI_PATH or `wsl:<distro>:<path>` for WSL installs."
         )
 
     def _api_request(self, method: str, endpoint: str, data: Optional[Dict] = None) -> Dict:
@@ -140,13 +174,14 @@ class KitePassport:
         )
 
     def _get_fallback_endpoints(self, endpoint: str) -> List[str]:
+        # Try compact/simple endpoints first, then fall back to legacy /api or /api/v1 variants.
         fallback_map = {
-            "/me": ["/api/v1/me", "/auth/me", "/user/me", "/api/me"],
-            "/health": ["/api/v1/health", "/status", "/api/health", "/api/status"],
-            "/wallet/balance": ["/api/v1/wallet/balance", "/balance", "/api/wallet/balance"],
-            "/agents": ["/api/v1/agents", "/api/agents", "/agent/list"],
-            "/services": ["/api/v1/services", "/api/services", "/service/list"],
-            "/agent/execute": ["/api/v1/agent/execute", "/execute", "/api/agent/execute"],
+            "/me": ["/auth/me", "/user/me", "/api/me", "/api/v1/me"],
+            "/health": ["/status", "/api/health", "/api/status", "/api/v1/health"],
+            "/wallet/balance": ["/balance", "/api/wallet/balance", "/api/v1/wallet/balance"],
+            "/agents": ["/api/agents", "/agent/list", "/api/v1/agents"],
+            "/services": ["/api/services", "/service/list", "/api/v1/services"],
+            "/agent/execute": ["/execute", "/api/agent/execute", "/api/v1/agent/execute"],
         }
         return fallback_map.get(endpoint, [])
 
@@ -175,9 +210,23 @@ class KitePassport:
         import platform
         is_windows = platform.system() == "Windows"
 
-        if is_windows and "home" in self.kpass_path:
-            # Use WSL to run kpass commands directly (assuming kpass is in WSL PATH)
-            cmd = ["wsl", "kpass"] + args
+        if is_windows and self.kpass_path.startswith("wsl:"):
+            parts = self.kpass_path.split(":", 2)
+            if len(parts) == 3:
+                _, distro, path = parts
+            else:
+                _, path = parts
+                distro = None
+            quoted_args = [shlex.quote(path)] + [shlex.quote(str(a)) for a in args]
+            bash_cmd = " ".join(quoted_args)
+            if distro:
+                cmd = ["wsl", "-d", distro, "bash", "-lc", bash_cmd]
+            else:
+                cmd = ["wsl", "bash", "-lc", bash_cmd]
+        elif is_windows and "home" in self.kpass_path:
+            # Legacy fallback for WSL path strings containing /home
+            quoted_args = [shlex.quote(self.kpass_path)] + [shlex.quote(str(a)) for a in args]
+            cmd = ["wsl", "bash", "-lc", " ".join(quoted_args)]
         else:
             cmd = [self.kpass_path] + args
 
@@ -267,7 +316,7 @@ class KitePassport:
 
     def send_payment(self, to_address: str, amount: str, asset: str = 'USDC') -> Dict:
         """Send payment from wallet."""
-        return self._api_request("POST", "/api/v1/wallet/send", {
+        return self._api_request("POST", "/wallet/send", {
             "to": to_address,
             "amount": amount,
             "asset": asset
@@ -276,14 +325,14 @@ class KitePassport:
     # Agent Management
     def register_agent(self, name: str, description: str) -> Dict:
         """Register this application as a Kite agent."""
-        return self._api_request("POST", "/api/v1/agents", {
+        return self._api_request("POST", "/agents", {
             "name": name,
             "description": description
         })
 
     def list_agents(self) -> Dict:
         """List registered agents."""
-        return self._api_request("GET", "/api/v1/agents")
+        return self._api_request("GET", "/agents")
 
     # Session Management
     def create_session(self, *args, **kwargs):
@@ -338,11 +387,11 @@ class KitePassport:
         if asset:
             params["asset"] = asset
 
-        return self._api_request("GET", "/api/v1/services", params)
+        return self._api_request("GET", "/services", params)
 
     def get_service_details(self, service_id: str) -> Dict:
         """Get detailed information about a specific service."""
-        return self._api_request("GET", f"/api/v1/services/{service_id}")
+        return self._api_request("GET", f"/services/{service_id}")
 
     # Agent Execution (for automated payments)
     def execute_agent_request(self, service_query: str, payment_amount: float,
@@ -419,20 +468,6 @@ class KitePassport:
 
         except Exception as e:
             raise Exception(f"Passport agent execution failed: {str(e)}")
-
-    def discover_services(self, query: str, payment_approach: str = "wallet") -> Dict:
-        """
-        Discover available services matching a query.
-
-        Args:
-            query: Search query for services
-            payment_approach: Payment approach (wallet, session, etc.)
-        """
-        params = {
-            "query": query,
-            "payment_approach": payment_approach
-        }
-        return self._api_request("GET", "/services", params)
 
     # Health & Status
     def check_health(self) -> Dict:
